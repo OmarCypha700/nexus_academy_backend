@@ -252,13 +252,17 @@ class EnrolledCourseDetailView(APIView):
             
             # FIXED: Use safer approach to access attributes that might not exist
             for lesson in lessons:
-                # Safely get module attributes with defaults
-                # title= getattr(lesson, f"{lesson.module.title}")
-                module_title = getattr(lesson, 'title', "Main Module")
-                module_id = getattr(lesson, 'module_id', 1)
-                
-                print(f"DEBUG: Processing lesson {lesson.id}, module: {module_title}")
-                # print(f"DEBUG: Actual module name {lesson.id}, module: {module_title}")
+                # Correctly get the module instance
+                module_instance = lesson.module
+                if not module_instance:
+                    module_title = "Main Module"
+                    module_id = 1
+                else:
+                    module_title = module_instance.title
+                    module_id = module_instance.id
+
+                # Debug print to verify module assignment
+                print(f"DEBUG: Processing lesson {lesson.id} in module '{module_title}' (ID: {module_id})")
                 
                 # Find existing module or create new one
                 module = next((m for m in modules if m['id'] == module_id), None)

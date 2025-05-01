@@ -62,7 +62,8 @@ MIDDLEWARE = [
 # Allow frontend to access API
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Next.js dev server
-    "http://your-local-ip:3000",  # If accessing from another device
+    "http://192.168.43.190:3000",
+    "http://192.168.43.83:3000", 
 ]
 
 
