@@ -8,7 +8,6 @@ class Course(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField()
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    playlist_id = models.CharField(max_length=100, blank=True, null=True)  # Optional YouTube Playlist ID
     intro_video_id = models.CharField(max_length=50, blank=True, null=True)  # YouTube Video ID for Intro
     instructor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="courses")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -19,7 +18,6 @@ class Course(models.Model):
     
     def __str__(self):
         return self.title
-
 
 class CourseModule(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="modules")
@@ -59,7 +57,6 @@ class Lesson(models.Model):
     def __str__(self):
         return f"{self.course.title} - {self.title}"
     
-
 # Quiz Model
 class Quiz(models.Model):
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="quizzes")

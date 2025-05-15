@@ -1,10 +1,11 @@
+from rest_framework.views import APIView 
 from rest_framework import generics, permissions, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import get_user_model
-from .serializers import RegisterSerializer, UserSerializer, InstructorSerializer
+from .serializers import RegisterSerializer, UserSerializer, InstructorSerializer, ProfileSerializer
 
 User = get_user_model()
 
@@ -29,13 +30,30 @@ class LoginView(TokenObtainPairView):
         }, status=status.HTTP_200_OK)
 
 # Get User Profile
-class UserProfileView(generics.RetrieveAPIView):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
+# class UserProfileView(generics.RetrieveAPIView):
+#     queryset = User.objects.all()
+#     serializer_class = UserSerializer
+#     # permission_classes = [IsAuthenticated]
+
+#     def get_object(self):
+#         print("Profile view accessed by:", self.request.user)
+#         return self.request.user
+    
+class UserProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get_object(self):
-        return self.request.user
+    def get(self, request):
+        serializer = ProfileSerializer(request.user)
+        print("Profile view accessed by:", self.request.user)
+        print("Profile:", serializer.data)
+        return Response(serializer.data)
+
+    def put(self, request):
+        serializer = ProfileSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class InstructorDetailView(generics.RetrieveAPIView):
     queryset = User.objects.filter(role="instructor")

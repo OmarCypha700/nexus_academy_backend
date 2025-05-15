@@ -61,10 +61,10 @@ MIDDLEWARE = [
 
 # Allow frontend to access API
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # Next.js dev server
-    "http://192.168.43.190:3000",
-    "http://192.168.43.83:3000", 
+    "http://localhost:3000",  # Next.js dev server for local testing
 ]
+
+CORS_ALLOW_CREDENTIALS = True
 
 
 ROOT_URLCONF = "nexus_backend.urls"

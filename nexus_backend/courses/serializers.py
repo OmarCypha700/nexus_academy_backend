@@ -12,7 +12,7 @@ User = get_user_model()
 class InstructorSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'email', 'bio', 'position']  # Add any additional fields you need
+        fields = ['id', 'first_name', 'last_name', 'email', 'bio', 'position']
 
 class LessonSerializer(serializers.ModelSerializer):
     class Meta:
@@ -49,7 +49,7 @@ class CourseSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Course
-        fields = ["id", "title", "description", "price", "playlist_id", "intro_video_id", 
+        fields = ["id", "title", "description", "price", "intro_video_id", 
                  "instructor", "instructor_details", "created_at", "category", 
                  "duration", "rating", "modules", "total_lessons", 
                  "outcomes", "requirements"]
@@ -67,6 +67,25 @@ class CourseSerializer(serializers.ModelSerializer):
     def get_total_lessons(self, obj):
         return obj.lessons.count()
 
+class CourseDetailSerializer(serializers.ModelSerializer):
+    lessons = LessonSerializer(many=True, read_only=True)
+    requirements = CourseRequirementSerializer(many=True, read_only=True)
+    outcomes = CourseOutcomeSerializer(many=True, read_only=True)
+    instructor_details = serializers.SerializerMethodField()
+    modules = serializers.SerializerMethodField()
+    class Meta:
+        model = Course
+        fields = '__all__'
+
+    def get_instructor_details(self, obj):
+        if obj.instructor:
+            return InstructorSerializer(obj.instructor).data
+        return None
+    
+    def get_modules(self, obj):
+        modules = obj.modules.all().prefetch_related('lessons')
+        return CourseModuleSerializer(modules, many=True).data
+    
 class QuizSerializer(serializers.ModelSerializer):
     class Meta:
         model = Quiz

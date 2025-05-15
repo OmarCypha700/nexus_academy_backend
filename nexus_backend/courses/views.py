@@ -6,11 +6,11 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from django.utils.timezone import now
 from rest_framework.response import Response
-from .models import Course, Lesson, Quiz, Question, Assignment, Enrollment, LessonProgress
+from .models import Course, Lesson, Quiz, Question, Assignment, Enrollment, LessonProgress, CourseRequirement
 from .serializers import (
     CourseSerializer, LessonSerializer, QuizSerializer, 
     QuestionSerializer, AssignmentSerializer, EnrollmentSerializer, 
-    LessonProgressSerializer
+    LessonProgressSerializer, CourseDetailSerializer
 )
 # from .permissions import IsCourseInstructorOrAdmin, IsAdminUser, IsEnrolledStudentOrInstructorOrAdmin
 import logging
@@ -63,7 +63,7 @@ class UserDashboard(APIView):
 class CourseListCreateView(generics.ListCreateAPIView):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
@@ -79,8 +79,8 @@ class CourseListCreateView(generics.ListCreateAPIView):
 
 class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Course.objects.all()
-    serializer_class = CourseSerializer
-    # permission_classes = [IsAuthenticated]
+    serializer_class = CourseDetailSerializer
+    permission_classes = [permissions.AllowAny]
 
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
@@ -106,12 +106,41 @@ class LessonListCreateView(generics.ListCreateAPIView):
     serializer_class = LessonSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        print(f"GET request to {request.path} by {request.user}")
+        print(f"Response: {response.data}")  # Print the response data to the console
+        return response
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        print(f"POST request to {request.path} by {request.user}")
+        print(f"Response: {response.data}")  # Print the response data to the console
+        return response
+
 class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Lesson.objects.all()
     serializer_class = LessonSerializer
-    permission_classes = [permissions.IsAuthenticated]  # Only Enrolled Students, Instructors, or Admins can view/edit
+    permission_classes = [permissions.IsAuthenticated] 
 
-# Quiz Views
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        print(f"GET request to {request.path} by {request.user}")
+        print(f"Response: {response.data}")  # Print the response data to the console
+        return response
+
+    def put(self, request, *args, **kwargs):
+        response = super().put(request, *args, **kwargs)
+        print(f"PUT request to {request.path} by {request.user}")
+        print(f"Response: {response.data}")  # Print the response data to the console
+        return response
+
+    def delete(self, request, *args, **kwargs):
+        response = super().delete(request, *args, **kwargs)
+        print(f"DELETE request to {request.path} by {request.user}")
+        print(f"Response: {response.data}")  # Print the response data to the console
+        return response
+
 class QuizListCreateView(generics.ListCreateAPIView):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
@@ -181,7 +210,9 @@ class EnrollmentCheckView(APIView):
             student=request.user,
             course_id=course_id
         ).exists()
-        
+        course_requirement = CourseRequirement.objects.filter(
+            course_id=course_id
+        )
         return Response({
             "enrolled": enrollment_exists
         })
