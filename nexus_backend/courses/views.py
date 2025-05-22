@@ -6,11 +6,11 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from django.utils.timezone import now
 from rest_framework.response import Response
-from .models import Course, Lesson, Quiz, Question, Assignment, Enrollment, LessonProgress, CourseRequirement
+from .models import Course, Lesson, Quiz, Question, Assignment, Enrollment, LessonProgress, CourseRequirement, CourseModule
 from .serializers import (
     CourseSerializer, LessonSerializer, QuizSerializer, 
     QuestionSerializer, AssignmentSerializer, EnrollmentSerializer, 
-    LessonProgressSerializer, CourseDetailSerializer
+    LessonProgressSerializer, CourseDetailSerializer, ModuleCreateSerializer
 )
 # from .permissions import IsCourseInstructorOrAdmin, IsAdminUser, IsEnrolledStudentOrInstructorOrAdmin
 import logging
@@ -57,7 +57,6 @@ class UserDashboard(APIView):
             "upcoming_assignments": AssignmentSerializer(assignments, many=True).data,
             "quizzes": QuizSerializer(quizzes, many=True).data,
         })
-
 
 # Course Views
 class CourseListCreateView(generics.ListCreateAPIView):
@@ -141,6 +140,47 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
         print(f"Response: {response.data}")  # Print the response data to the console
         return response
 
+class ModuleCreateView(generics.ListCreateAPIView):
+    queryset = CourseModule.objects.all()
+    serializer_class = ModuleCreateSerializer
+    permission_classes = [permissions.IsAuthenticated]  # Only Course Instructor or Admin can create
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        print(f"POST request to {request.path} by {request.user}")
+        print(f"Response: {response.data}")  # Print the response data to the console
+        return response
+    
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        print(f"GET request to {request.path} by {request.user}")
+        print(f"Response: {response.data}")  # Print the response data to the console
+        return response
+    
+class ModuleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = CourseModule.objects.all()
+    serializer_class = ModuleCreateSerializer
+    permission_classes = [permissions.IsAuthenticated]  # Only Enrolled Students, Instructors, or Admins can view/edit
+
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        print(f"GET request to {request.path} by {request.user}")
+        print(f"Response: {response.data}")  # Print the response data to the console
+        return response
+    
+    def put(self, request, *args, **kwargs):
+        response = super().put(request, *args, **kwargs)
+        print(f"PUT request to {request.path} by {request.user}")
+        print(f"Response: {response.data}")  # Print the response data to the console
+        return response
+    
+    def delete(self, request, *args, **kwargs):
+        response = super().delete(request, *args, **kwargs)
+        print(f"DELETE request to {request.path} by {request.user}")
+        print(f"Response: {response.data}")  # Print the response data to the console
+        return response
+    
+
 class QuizListCreateView(generics.ListCreateAPIView):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
@@ -200,7 +240,6 @@ class EnrollmentView(generics.CreateAPIView):
         
         return Response(EnrollmentSerializer(enrollment).data, status=201)
     
-
 class EnrollmentCheckView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -225,7 +264,6 @@ class LessonProgressView(generics.CreateAPIView):
 
     def get_serializer_context(self):
         return {"request": self.request}
-
 
 class EnrolledCourseDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -539,7 +577,6 @@ class LessonQuizzesView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )    
 
-
 class LessonAssignmentsView(APIView):
     """
     API endpoint to retrieve all assignments for a specific lesson.
@@ -598,7 +635,6 @@ class LessonAssignmentsView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
-
 class QuizSubmissionView(APIView):
     permission_classes = [IsAuthenticated]
 

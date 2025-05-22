@@ -29,7 +29,12 @@ class CourseModuleSerializer(serializers.ModelSerializer):
     
     def get_duration(self, obj):
         return obj.duration_minutes()
-    
+
+class ModuleCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CourseModule
+        fields = ['course', 'title', 'position']
+            
 class CourseOutcomeSerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseOutcome

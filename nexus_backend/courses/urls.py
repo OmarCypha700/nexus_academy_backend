@@ -9,12 +9,14 @@ from .views import (
     UserDashboard, EnrollmentCheckView,
     EnrolledCourseDetailView, EnrollmentProgressView,
     CompleteLessonView, LessonQuizzesView, LessonAssignmentsView,
-    QuizSubmissionView
+    QuizSubmissionView, ModuleCreateView, ModuleDetailView
 )
 
 urlpatterns = [
     path("courses/", CourseListCreateView.as_view(), name="course-list"),
     path("courses/<int:pk>/", CourseDetailView.as_view(), name="course-detail"),
+    path("modules/", ModuleCreateView.as_view(), name='module-create'),
+    path("modules/<int:pk>/", ModuleDetailView.as_view(), name='module-create'),
 
     path("lessons/", LessonListCreateView.as_view(), name="lesson-list"),
     path("lessons/<int:pk>/", LessonDetailView.as_view(), name="lesson-detail"),
@@ -31,7 +33,7 @@ urlpatterns = [
     path("enroll/", EnrollmentView.as_view(), name="enroll-course"),
     path("progress/", LessonProgressView.as_view(), name="lesson-progress"),
 
-    path('user-dashboard/', UserDashboard.as_view(), name='user-dashboard'),
+    path("user-dashboard/", UserDashboard.as_view(), name='user-dashboard'),
 
     path("enrollments/check/<int:course_id>/", EnrollmentCheckView.as_view(), name="enrollment-check"),
     path("enrollments/course/<int:course_id>/", EnrolledCourseDetailView.as_view(), name="enrolled-course-detail"),
