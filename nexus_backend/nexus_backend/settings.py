@@ -10,8 +10,8 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
-import os
 from dotenv import load_dotenv
+import os
 from pathlib import Path
 from datetime import timedelta
 
@@ -26,7 +26,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -76,7 +76,7 @@ ROOT_URLCONF = "nexus_backend.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -107,6 +107,20 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
 }
+
+# EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+# EMAIL_HOST = os.getenv("EMAIL_HOST")
+# EMAIL_PORT = os.getenv("EMAIL_PORT")
+# EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS")
+# EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+# EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+
+# DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+# FRONTEND_URL = os.getenv("FRONTEND_URL")
+# SITE_NAME = "Nexus Academy"
+
+# MAILGUN_DOMAIN = os.getenv("MAILGUN_DOMAIN")
+# MAILGUN_API_KEY = os.getenv("MAILGUN_API_KEY")
 
 
 # Database
