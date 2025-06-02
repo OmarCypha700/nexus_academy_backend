@@ -26,12 +26,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+SECRET_KEY = "django-insecure-wa_ihw&zo-klf28p5h68itqwqj33kvq3vb(2ay4l(mlw0@3qhb"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*","nexusacadamy.pythonanywhere.com"]
 
 
 # Application definition
@@ -65,7 +65,8 @@ MIDDLEWARE = [
 
 # Allow frontend to access API
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # Next.js dev server for local testing
+    "http://localhost:3000",
+    
 ]
 
 CORS_ALLOW_CREDENTIALS = True
