@@ -66,6 +66,7 @@ MIDDLEWARE = [
 # Allow frontend to access API
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
+    "https://nexusacademy.vercel.app/"
     
 ]
 
