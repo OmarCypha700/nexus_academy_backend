@@ -31,7 +31,7 @@ SECRET_KEY = "django-insecure-wa_ihw&zo-klf28p5h68itqwqj33kvq3vb(2ay4l(mlw0@3qhb
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["*","nexusacadamy.pythonanywhere.com"]
+ALLOWED_HOSTS = ["nexusacadamy.pythonanywhere.com"]
 
 
 # Application definition
@@ -52,6 +52,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -59,14 +60,14 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
+    
 ]
 
 
 # Allow frontend to access API
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "https://nexusacademy.vercel.app/"
+    "https://nexusacademy.vercel.app",
     
 ]
 
