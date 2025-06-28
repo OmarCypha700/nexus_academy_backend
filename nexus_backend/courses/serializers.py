@@ -40,12 +40,12 @@ class ModuleCreateSerializer(serializers.ModelSerializer):
 class CourseOutcomeSerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseOutcome
-        fields = ['course', 'text', 'position']
+        fields = ['id', 'text', 'position']
 
 class CourseRequirementSerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseRequirement
-        fields = ['course', 'text', 'position']
+        fields = ['id', 'text', 'position']
 
 class CourseSerializer(serializers.ModelSerializer):
     instructor_details = serializers.SerializerMethodField()
@@ -78,16 +78,22 @@ class CourseSerializer(serializers.ModelSerializer):
     
     def get_progress_percent(self, obj):
         user = self.context['request'].user
+        if not user.is_authenticated:
+            return None  # or 0
+        
         total_lessons = Lesson.objects.filter(
             module__course=obj
         ).count()
-        if not total_lessons:
+
+        if total_lessons == 0:
             return 0
+
         completed_lessons = LessonProgress.objects.filter(
             student=user,
             lesson__module__course=obj,
             completed=True
         ).count()
+
         return round((completed_lessons / total_lessons) * 100)
 
 class CourseDetailSerializer(serializers.ModelSerializer):
