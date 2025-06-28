@@ -1,63 +1,74 @@
 from rest_framework import generics, permissions
+from rest_framework.exceptions import PermissionDenied, NotFound
+from django.contrib.auth.mixins import LoginRequiredMixin
 from rest_framework import status
-from django.db.models import Prefetch, Count, Case, When, IntegerField
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+from .permissions import IsCreatorOrEnrolled, IsQuizInstructor, IsCourseInstructor
+from django.utils import timezone
+from django.db import transaction
+from django.db.models import Prefetch
 from django.utils.timezone import now
 from rest_framework.response import Response
-from .models import Course, Lesson, Quiz, Question, Assignment, Enrollment, LessonProgress, CourseRequirement, CourseModule
+from .models import (Course, Lesson, Assignment, 
+                     Enrollment, LessonProgress, CourseRequirement, 
+                     CourseOutcome, CourseModule, Quiz, 
+                     Question, QuizAttempt)
 from .serializers import (
-    CourseSerializer, LessonSerializer, QuizSerializer, 
-    QuestionSerializer, AssignmentSerializer, EnrollmentSerializer, 
-    LessonProgressSerializer, CourseDetailSerializer, ModuleCreateSerializer
+    CourseSerializer, LessonSerializer, AssignmentSerializer, 
+    EnrollmentSerializer, LessonProgressSerializer, CourseDetailSerializer, 
+    ModuleCreateSerializer, QuestionSerializer, 
+    # BulkCourseOutcomeSerializer, BulkCourseRequirementSerializer, CourseOutcomeSerializer,CourseRequirementSerializer, 
+    QuizSerializer, QuizListSerializer, 
+    QuizAttemptSerializer, QuizResultSerializer, QuizDashboardSerializer
 )
-# from .permissions import IsCourseInstructorOrAdmin, IsAdminUser, IsEnrolledStudentOrInstructorOrAdmin
+import json
+import random
 import logging
+logger = logging.getLogger(__name__)
 
-class UserDashboard(APIView):
-    permission_classes = [IsAuthenticated]
 
+class UserDashboardView(APIView):
     def get(self, request):
         user = request.user
+        if not user.is_authenticated:
+            return Response({"error": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # Enrolled courses
-        enrollments = Enrollment.objects.filter(student=user).select_related('course')
-        courses = [enrollment.course for enrollment in enrollments]
+        # Optimize queries with select_related and prefetch_related
+        courses = Course.objects.filter(
+            enrollments__student=user
+        ).select_related('instructor').prefetch_related(
+            Prefetch('modules', queryset=CourseModule.objects.prefetch_related('lessons'))
+        ).distinct()
 
-        # Lesson progress
-        progress = LessonProgress.objects.filter(student=user)
+        quizzes = Quiz.objects.filter(
+            lesson__module__course__enrollments__student=user
+        ).select_related('lesson__module__course')
 
-        # Upcoming assignments
-        assignments = Assignment.objects.filter(
-            lesson__course__in=courses,
-            due_date__gt=now()
-        ).order_by("due_date")
+        lesson_progress = LessonProgress.objects.filter(
+            student=user,
+            lesson__module__course__enrollments__student=user
+        ).select_related('lesson')
 
-        # Quizzes
-        quizzes = Quiz.objects.filter(lesson__course__in=courses)
-
-        # Build course progress data
-        course_data = []
-        for course in courses:
-            lessons = course.lessons.all()
-            total_lessons = lessons.count()
-            completed_lessons = progress.filter(lesson__in=lessons, completed=True).count()
-            progress_percent = round((completed_lessons / total_lessons) * 100, 1) if total_lessons else 0.0
-
-            course_data.append({
-                "id": course.id,
-                "title": course.title,
-                "description": course.description,
-                "progress_percent": progress_percent,
-            })
+        course_data = CourseSerializer(courses, many=True, context={'request': request}).data
+        quiz_data = QuizDashboardSerializer(quizzes, many=True, context={'request': request}).data
+        lesson_progress_data = [
+            {
+                'lesson_id': progress.lesson.id,
+                'completed': progress.completed,
+                'completed_at': progress.completed_at,
+            }
+            for progress in lesson_progress
+        ]
 
         return Response({
-            "courses": course_data,
-            "upcoming_assignments": AssignmentSerializer(assignments, many=True).data,
-            "quizzes": QuizSerializer(quizzes, many=True).data,
+            'courses': course_data,
+            'quizzes': quiz_data,
+            'lesson_progress': lesson_progress_data,
+            'upcoming_assignments': [],
         })
-
+    
 # Course Views
 class CourseListCreateView(generics.ListCreateAPIView):
     queryset = Course.objects.all()
@@ -71,6 +82,7 @@ class CourseListCreateView(generics.ListCreateAPIView):
         return response
 
     def post(self, request, *args, **kwargs):
+        # permission_classes = [permissions.IsAuthenticated]
         response = super().post(request, *args, **kwargs)
         print(f"POST request to {request.path} by {request.user}")
         print(f"Response: {response.data}")  # Print the response data to the console
@@ -79,7 +91,7 @@ class CourseListCreateView(generics.ListCreateAPIView):
 class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Course.objects.all()
     serializer_class = CourseDetailSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
@@ -99,11 +111,86 @@ class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
         print(f"Response: {response.data}")  # Print the response data to the console
         return response
 
+
+# class BulkCourseOutcomeView(APIView):
+#     permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
+
+#     def post(self, request):
+#         course_id = request.data.get('course')
+#         if not course_id:
+#             return Response({"detail": "course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+#         serializer = BulkCourseOutcomeSerializer(data=request.data)
+#         if serializer.is_valid():
+#             try:
+#                 with transaction.atomic():
+#                     course = Course.objects.get(id=course_id)
+#                     outcomes_data = serializer.validated_data.get('outcomes', [])
+#                     created_outcomes = []
+#                     for outcome_data in outcomes_data:
+#                         outcome = CourseOutcome(
+#                             course=course,
+#                             text=outcome_data['text'],
+#                             position=outcome_data.get('position', 0)
+#                         )
+#                         outcome.save()
+#                         created_outcomes.append(CourseOutcomeSerializer(outcome).data)
+#                     return Response({
+#                         "detail": "Course outcomes created successfully",
+#                         "outcomes": created_outcomes
+#                     }, status=status.HTTP_201_CREATED)
+#             except Course.DoesNotExist:
+#                 return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+#             except Exception as e:
+#                 return Response({"detail": f"Error creating outcomes: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# class BulkCourseRequirementView(APIView):
+#     permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
+
+#     def post(self, request):
+#         course_id = request.data.get('course_id')
+#         if not course_id:
+#             return Response({"detail": "course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+#         serializer = BulkCourseRequirementSerializer(data=request.data)
+#         if serializer.is_valid():
+#             try:
+#                 with transaction.atomic():
+#                     course = Course.objects.get(id=course_id)
+#                     requirements_data = serializer.validated_data.get('requirements', [])
+#                     created_requirements = []
+#                     for req_data in requirements_data:
+#                         requirement = CourseRequirement(
+#                             course=course,
+#                             text=req_data['text'],
+#                             position=req_data.get('position', 0)
+#                         )
+#                         requirement.save()
+#                         created_requirements.append(CourseRequirementSerializer(requirement).data)
+#                     return Response({
+#                         "detail": "Course requirements created successfully",
+#                         "requirements": created_requirements
+#                     }, status=status.HTTP_201_CREATED)
+#             except Course.DoesNotExist:
+#                 return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+#             except Exception as e:
+#                 return Response({"detail": f"Error creating requirements: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 # Lesson Views
+class CourseSpecificLessons(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, id, format=None):
+        lessons = Lesson.objects.filter(course=id)
+        serializer = LessonSerializer(lessons, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 class LessonListCreateView(generics.ListCreateAPIView):
     queryset = Lesson.objects.all()
     serializer_class = LessonSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
@@ -145,12 +232,14 @@ class ModuleCreateView(generics.ListCreateAPIView):
     serializer_class = ModuleCreateSerializer
     permission_classes = [permissions.IsAuthenticated]  # Only Course Instructor or Admin can create
 
+    # Creating module
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         print(f"POST request to {request.path} by {request.user}")
         print(f"Response: {response.data}")  # Print the response data to the console
         return response
     
+    # Get module data
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
         print(f"GET request to {request.path} by {request.user}")
@@ -162,45 +251,330 @@ class ModuleDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ModuleCreateSerializer
     permission_classes = [permissions.IsAuthenticated]  # Only Enrolled Students, Instructors, or Admins can view/edit
 
+    # Get module data
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
         print(f"GET request to {request.path} by {request.user}")
         print(f"Response: {response.data}")  # Print the response data to the console
         return response
     
+    # Update module
     def put(self, request, *args, **kwargs):
         response = super().put(request, *args, **kwargs)
         print(f"PUT request to {request.path} by {request.user}")
         print(f"Response: {response.data}")  # Print the response data to the console
         return response
     
+    # Delete module
     def delete(self, request, *args, **kwargs):
         response = super().delete(request, *args, **kwargs)
         print(f"DELETE request to {request.path} by {request.user}")
         print(f"Response: {response.data}")  # Print the response data to the console
         return response
     
-
 class QuizListCreateView(generics.ListCreateAPIView):
-    queryset = Quiz.objects.all()
-    serializer_class = QuizSerializer
-    permission_classes = [permissions.IsAuthenticated]  # Only Course Instructor or Admin can create
+    serializer_class = QuizListSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Filter by lesson if provided
+        queryset = Quiz.objects.all()
+        course_id = self.request.query_params.get('course_id')
+        lesson_id = self.request.query_params.get('lesson_id')
+        if course_id:
+            queryset = queryset.filter(course_id=course_id)
+        if lesson_id:
+            queryset = queryset.filter(lesson_id=lesson_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 class QuizDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
-    permission_classes = [permissions.IsAuthenticated]  # Only Enrolled Students, Instructors, or Admins can view/edit
+    permission_classes = [permissions.IsAuthenticated, IsCreatorOrEnrolled]
 
-# Question Views
+
 class QuestionListCreateView(generics.ListCreateAPIView):
-    queryset = Question.objects.all()
     serializer_class = QuestionSerializer
-    permission_classes = [permissions.IsAuthenticated]  # Only Course Instructor or Admin can create
+    permission_classes = [permissions.IsAuthenticated, IsQuizInstructor]
+
+    def get_queryset(self):
+        quiz_id = self.request.query_params.get('quiz_id')
+        if not quiz_id:
+            raise NotFound("quiz_id is required")
+        return Question.objects.filter(quiz_id=quiz_id).prefetch_related('quiz')
+
+    def perform_create(self, serializer):
+        quiz_id = self.request.data.get('quiz')
+        if not quiz_id:
+            raise NotFound("quiz_id is required")
+        try:
+            quiz = Quiz.objects.get(id=quiz_id)
+            logger.info(f"Creating question for quiz {quiz_id} with data: {self.request.data}")
+            serializer.save(quiz=quiz)
+        except Quiz.DoesNotExist:
+            raise NotFound("Quiz not found")
 
 class QuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Question.objects.all()
     serializer_class = QuestionSerializer
-    permission_classes = [permissions.IsAuthenticated]  # Only Enrolled Students, Instructors, or Admins can view/edit
+    permission_classes = [permissions.IsAuthenticated, IsQuizInstructor]
+
+    def get_object(self):
+        question = super().get_object()
+        if question.quiz.lesson.module.course.instructor != self.request.user:
+            raise PermissionDenied("You are not authorized to modify this question")
+        return question
+
+class LessonQuizzesView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, lesson_id):
+        try:
+            lesson = get_object_or_404(Lesson, id=lesson_id)
+            
+            # Check if user is enrolled in the course
+            is_enrolled = lesson.course.enrollments.filter(student=request.user).exists()
+            if not is_enrolled:
+                return Response(
+                    {"detail": "You are not enrolled in this course."}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # Get active quizzes for this lesson
+            quizzes = Quiz.objects.filter(lesson_id=lesson_id, is_active=True)
+            
+            # Add attempt information for each quiz
+            quiz_data = []
+            for quiz in quizzes:
+                # Get user's attempts for this quiz
+                attempts = QuizAttempt.objects.filter(
+                    student=request.user, 
+                    quiz=quiz
+                ).order_by('-started_at')
+                
+                quiz_info = QuizListSerializer(quiz).data
+                quiz_info['attempts_count'] = attempts.count()
+                quiz_info['max_attempts'] = quiz.max_attempts
+                quiz_info['can_attempt'] = attempts.count() < quiz.max_attempts
+                
+                if attempts.exists():
+                    best_attempt = attempts.order_by('-score').first()
+                    quiz_info['best_score'] = best_attempt.score
+                    quiz_info['passed'] = best_attempt.passed
+                    quiz_info['last_attempt'] = QuizResultSerializer(attempts.first()).data
+                else:
+                    quiz_info['best_score'] = None
+                    quiz_info['passed'] = False
+                    quiz_info['last_attempt'] = None
+                
+                quiz_data.append(quiz_info)
+            
+            return Response({
+                'lesson_id': lesson_id,
+                'lesson_title': lesson.title,
+                'quizzes': quiz_data
+            })
+            
+        except Exception as e:
+            return Response(
+                {"detail": f"An error occurred: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class QuizTakeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, quiz_id):
+        user = request.user
+        try:
+            quiz = Quiz.objects.get(id=quiz_id)
+            attempt_count = QuizAttempt.objects.filter(student=user, quiz=quiz).count()
+            if quiz.max_attempts and attempt_count >= quiz.max_attempts:
+                logger.warning(f"No attempts remaining for quiz {quiz_id} by user {user}")
+                return Response(
+                    {"error": "No attempts remaining"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            quiz_data = QuizSerializer(quiz, context={'request': request}).data
+            response_data = {"quiz": quiz_data}
+            logger.info(f"GET /quizzes/{quiz_id}/take/ by {user} - Success")
+            return Response(response_data, status=status.HTTP_200_OK)
+        except Quiz.DoesNotExist:
+            logger.error(f"Quiz {quiz_id} not found for user {user}")
+            return Response(
+                {"error": "Quiz not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error in GET /quizzes/{quiz_id}/take/ by {user}: {str(e)}")
+            return Response(
+                {"error": f"Server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class QuizSubmitView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, quiz_id):
+        try:
+            quiz = Quiz.objects.filter(id=quiz_id).first()
+            if not quiz:
+                return Response({"detail": "Quiz not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Check if user can attempt
+            attempts = QuizAttempt.objects.filter(quiz=quiz.id, student=request.user).count()
+            if not quiz.is_active or attempts >= quiz.max_attempts:
+                return Response(
+                    {"detail": "No attempts remaining or quiz is not available"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # Get answers
+            answers = request.data.get('answers', {})
+            time_taken = request.data.get('time_taken', 0)
+
+            # Validate answers
+            questions = Question.objects.filter(quiz=quiz)
+            if not questions.exists():
+                return Response({"detail": "No questions found"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Calculate score
+            score = 0
+            total_points = 0
+            correct_answers = 0
+            total_questions = questions.count()
+            detailed_results = {}
+
+            for question in questions:
+                user_answer = answers.get(str(question.id))
+                correct_answer = question.correct_answer
+                if question.question_type == 'multiple_choice_multiple':
+                    correct = isinstance(user_answer, list) and sorted(user_answer) == sorted(json.loads(correct_answer))
+                elif question.question_type == 'short_answer':
+                    correct = user_answer.strip().lower() == correct_answer.strip().lower()
+                else:
+                    correct = user_answer == correct_answer
+
+                if correct:
+                    score += question.points
+                    correct_answers += 1
+
+                total_points += question.points
+                detailed_results[question.id] = {
+                    'question': question.text,
+                    'your_answer': user_answer,
+                    'correct_answer': correct_answer,
+                    'is_correct': correct,
+                    'explanation': question.explanation,
+                }
+
+            # Save attempt
+            QuizAttempt.objects.create(
+                quiz=quiz,
+                student=request.user,
+                score=score,
+                time_taken=time_taken,
+                answers=answers
+            )
+
+            # Response
+            result = {
+                'score': (score / total_points * 100) if total_points > 0 else 0,
+                'total_points': total_points,
+                'correct_answers': correct_answers,
+                'total_questions': total_questions,
+                'passed': score >= quiz.passing_score * total_points / 100,
+                'attempts_remaining': max(0, quiz.max_attempts - attempts - 1),
+                'detailed_results': detailed_results
+            }
+
+            return Response(result, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            print(f"Error in QuizSubmitView: {str(e)}")
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class QuizAttemptListView(generics.ListAPIView):
+    serializer_class = QuizAttemptSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        quiz_id = self.kwargs.get('quiz_id')
+        if quiz_id:
+            return QuizAttempt.objects.filter(
+                quiz_id=quiz_id,
+                student=self.request.user
+            ).order_by('-started_at')
+        return QuizAttempt.objects.filter(student=self.request.user).order_by('-started_at')
+
+class QuizAttemptDetailView(generics.RetrieveAPIView):
+    serializer_class = QuizAttemptSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        return QuizAttempt.objects.filter(student=self.request.user)
+
+class QuizResultsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, quiz_id):
+        user = request.user
+        try:
+            quiz = Quiz.objects.get(id=quiz_id)
+            latest_attempt = QuizAttempt.objects.filter(
+                user=user,
+                quiz=quiz
+            ).order_by('-attempt_number').first()
+
+            if not latest_attempt:
+                logger.warning(f"No attempts found for quiz {quiz_id} by user {user}")
+                return Response(
+                    {"error": "No quiz attempts found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            detailed_results = {}
+            for answer in latest_attempt.answers:
+                question = Question.objects.get(id=answer.question_id)
+                is_correct = answer.is_correct
+                your_answer = answer.selected_answers
+                correct_answer = question.correct_answer
+                detailed_results[question.id] = {
+                    "question": question.text,
+                    "your_answer": your_answer,
+                    "correct_answer": correct_answer,
+                    "is_correct": is_correct,
+                    "explanation": question.explanation or ""
+                }
+
+            response_data = {
+                "results": {
+                    "score": latest_attempt.score,
+                    "total_points": latest_attempt.total_points,
+                    "attempts_remaining": quiz.max_attempts - latest_attempt.attempt_number,
+                    "detailed_results": detailed_results
+                }
+            }
+            logger.info(f"GET /quizzes/{quiz_id}/results/ by {user} - Success")
+            return Response(response_data, status=status.HTTP_200_OK)
+        except Quiz.DoesNotExist:
+            logger.error(f"Quiz {quiz_id} not found for user {user}")
+            return Response(
+                {"error": "Quiz not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error in GET /quizzes/{quiz_id}/results/ by {user}: {str(e)}")
+            return Response(
+                {"error": f"Server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 # Assignment Views
 class AssignmentListCreateView(generics.ListCreateAPIView):
@@ -265,11 +639,11 @@ class LessonProgressView(generics.CreateAPIView):
     def get_serializer_context(self):
         return {"request": self.request}
 
-class EnrolledCourseDetailView(APIView):
+class EnrolledCourseDetailView(APIView, LoginRequiredMixin):
     permission_classes = [IsAuthenticated]
     
     def get(self, request, course_id):
-        """Get detailed course content for enrolled users"""
+        """Get detailed course content for enrolled users, including quizzes and questions"""
         try:
             print(f"DEBUG: Processing request for course {course_id} by user {request.user.id}")
             
@@ -295,13 +669,12 @@ class EnrolledCourseDetailView(APIView):
             if not course:
                 return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
             
-            # Get lessons with progress info - FIXED: Only order by 'order' if it exists
+            # Get lessons with progress info
             try:
                 lessons = Lesson.objects.filter(course=course).order_by('position')
-                print(f"DEBUG: Lessons ordered by 'order' field, found {lessons.count()} lessons")
+                print(f"DEBUG: Lessons ordered by 'position' field, found {lessons.count()} lessons")
             except Exception as field_error:
-                print(f"DEBUG: 'order' field error: {str(field_error)}")
-                # Fallback if 'order' field doesn't exist
+                print(f"DEBUG: 'position' field error: {str(field_error)}")
                 lessons = Lesson.objects.filter(course=course)
                 print(f"DEBUG: Retrieved lessons without ordering, found {lessons.count()} lessons")
             
@@ -317,9 +690,8 @@ class EnrolledCourseDetailView(APIView):
             print(f"DEBUG: Found {len(completed_lessons)} completed lessons")
             
             # Create response structure
-            modules = []  # Placeholder for module structure
+            modules = []
             
-            # FIXED: Use safer approach to access attributes that might not exist
             for lesson in lessons:
                 # Correctly get the module instance
                 module_instance = lesson.module
@@ -330,7 +702,6 @@ class EnrolledCourseDetailView(APIView):
                     module_title = module_instance.title
                     module_id = module_instance.id
 
-                # Debug print to verify module assignment
                 print(f"DEBUG: Processing lesson {lesson.id} in module '{module_title}' (ID: {module_id})")
                 
                 # Find existing module or create new one
@@ -339,7 +710,7 @@ class EnrolledCourseDetailView(APIView):
                     module = {
                         'id': module_id,
                         'title': module_title,
-                        'description': '',
+                        'description': getattr(module_instance, 'description', ''),
                         'lessons': []
                     }
                     modules.append(module)
@@ -355,62 +726,85 @@ class EnrolledCourseDetailView(APIView):
                     Returns:
                         str: The content type identifier ('video', 'text', 'quiz', 'assignment', etc.)
                     """
-                    # Check for video content first
                     if hasattr(lesson, 'video_id') and lesson.video_id:
                         return 'video'
                     
-                    # Check for quiz content
-                    if Quiz.objects.filter(lesson_id=lesson.id).exists():
+                    quizzes = Quiz.objects.filter(lesson_id=lesson.id)
+                    if quizzes.exists():
                         return 'quiz'
                     
-                    # Check for assignments
                     if Assignment.objects.filter(lesson_id=lesson.id).exists():
                         return 'assignment'
                     
-                    # Check if it's a text/reading lesson
                     if (hasattr(lesson, 'content') and lesson.content) or (hasattr(lesson, 'text_content') and lesson.text_content):
                         return 'text'
                     
-                    # Check for downloadable content
                     if hasattr(lesson, 'attachment') and lesson.attachment:
                         return 'download'
                     
-                    # Check for interactive content
                     if hasattr(lesson, 'interactive') and lesson.interactive:
                         return 'interactive'
                     
-                    # Default to generic content type
                     return 'content'
                 
-                # FIXED: Safely get lesson attributes with defaults
+                # Get quizzes and their questions for this lesson
+                quizzes = Quiz.objects.filter(lesson_id=lesson.id)
+                quiz_data = []
+                for quiz in quizzes:
+                    # Get quiz attempts for this user
+                    attempts = QuizAttempt.objects.filter(
+                        student=request.user,
+                        quiz=quiz
+                    ).count()
+                    quiz_info = {
+                        'id': quiz.id,
+                        'title': quiz.title,
+                        'description': quiz.description,
+                        'is_active': quiz.is_active,
+                        'passing_score': quiz.passing_score,
+                        'max_attempts': quiz.max_attempts,
+                        'attempts_count': attempts,
+                        'can_attempt': quiz.is_active and (attempts < quiz.max_attempts),
+                        'shuffle_questions': quiz.shuffle_questions,
+                        'time_limit': quiz.time_limit,
+                        'questions': []
+                    }
+                    # Get questions for this quiz
+                    questions = Question.objects.filter(quiz=quiz).order_by('position')
+                    for question in questions:
+                        question_data = {
+                            'id': question.id,
+                            'text': question.text,
+                            'question_type': question.question_type,
+                            'choices': question.choices if question.choices else [],
+                            'points': question.points,
+                            'position': question.position
+                        }
+                        quiz_info['questions'].append(question_data)
+                    quiz_data.append(quiz_info)
+                
+                # Get assignments for this lesson
+                assignments = Assignment.objects.filter(lesson_id=lesson.id)
+                assignment_data = [{
+                    'id': assignment.id,
+                    'title': assignment.title,
+                    'description': assignment.description,
+                    'due_date': assignment.due_date
+                } for assignment in assignments]
+                
+                # Build lesson data
                 lesson_data = {
                     'id': lesson.id,
                     'title': lesson.title,
-                    'type': determine_content_type(lesson),  # Implement this function
+                    'type': determine_content_type(lesson),
                     'duration': getattr(lesson, 'duration', 0),
                     'video_id': getattr(lesson, 'video_id', ''),
                     'description': getattr(lesson, 'description', ''),
-                    'completed': lesson.id in completed_lessons
+                    'completed': lesson.id in completed_lessons,
+                    'quizzes': quiz_data,
+                    'assignments': assignment_data
                 }
                 
-                # Add quizzes related to this lesson
-                quizzes = Quiz.objects.filter(lesson_id=lesson.id)
-                if quizzes.exists():
-                    lesson_data['quizzes'] = [{
-                        'id': quiz.id,
-                        'title': quiz.title
-                    } for quiz in quizzes]
-                
-                # Add assignments related to this lesson
-                assignments = Assignment.objects.filter(lesson_id=lesson.id)
-                if assignments.exists():
-                    lesson_data['assignments'] = [{
-                        'id': assignment.id,
-                        'title': assignment.title,
-                        'description': assignment.description,
-                        'due_date': assignment.due_date
-                    } for assignment in assignments]
-
                 module['lessons'].append(lesson_data)
             
             # Calculate overall progress
@@ -418,7 +812,7 @@ class EnrolledCourseDetailView(APIView):
             completed_count = len(completed_lessons)
             progress_percent = round((completed_count / total_lessons) * 100, 1) if total_lessons else 0.0
             
-            # FIXED: Safely access instructor if it exists
+            # Safely access instructor if it exists
             instructor_name = ""
             if hasattr(course, 'instructor'):
                 instructor = course.instructor
@@ -444,7 +838,7 @@ class EnrolledCourseDetailView(APIView):
         except Exception as e:
             import traceback
             print(f"ERROR: Exception in EnrolledCourseDetailView: {str(e)}")
-            traceback.print_exc()  # This will print the full stack trace
+            traceback.print_exc()
             return Response(
                 {"detail": "An error occurred while fetching the course"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -491,7 +885,6 @@ class EnrollmentProgressView(APIView):
             print(f"Error fetching progress: {str(e)}")
             return Response({"detail": "An error occurred"}, status=500)
         
-
 class CompleteLessonView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -528,54 +921,6 @@ class CompleteLessonView(APIView):
             "lesson_id": lesson_id,
             "completed": True
         })
-
-class LessonQuizzesView(APIView):
-    """
-    API endpoint to retrieve all quizzes for a specific lesson.
-    """
-    permission_classes = [IsAuthenticated]
-    
-    def get(self, request, lesson_id):
-        """
-        Get all quizzes for the specified lesson ID.
-        
-        Args:
-            request: The HTTP request
-            lesson_id: The ID of the lesson to get quizzes for
-        
-        Returns:
-            Response with serialized quizzes data
-        """
-        try:
-            # Verify the lesson exists
-            lesson = get_object_or_404(Lesson, id=lesson_id)
-            
-            # Check if the user is enrolled in the course containing this lesson
-            is_enrolled = lesson.course.enrollment_set.filter(student=request.user).exists()
-            
-            if not is_enrolled:
-                return Response(
-                    {"detail": "You are not enrolled in the course containing this lesson"},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            
-            # Get all quizzes for this lesson
-            quizzes = Quiz.objects.filter(lesson_id=lesson_id)
-            
-            # Serialize the quizzes
-            serializer = QuizSerializer(quizzes, many=True)
-            
-            return Response({
-                "lesson_id": lesson_id,
-                "lesson_title": lesson.title,
-                "quizzes": serializer.data
-            })
-            
-        except Exception as e:
-            return Response(
-                {"detail": f"An error occurred: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )    
 
 class LessonAssignmentsView(APIView):
     """
@@ -635,53 +980,21 @@ class LessonAssignmentsView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
-class QuizSubmissionView(APIView):
+class ModuleReorderView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, pk):
+    def post(self, request):
         try:
-            quiz = get_object_or_404(Quiz, id=pk)
-            lesson = quiz.lesson
-            if not lesson.course.enrollment_set.filter(student=request.user).exists():
-                return Response(
-                    {"detail": "You are not enrolled in the course containing this quiz"},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-
-            answers = request.data.get("answers", {})
-            questions = quiz.questions.all()
-            score = 0
-            total = sum(q.max_points for q in questions)
-            results = []
-
-            for question in questions:
-                user_answer = answers.get(str(question.id), "")
-                is_correct = False
-
-                if question.type == "mcq":
-                    is_correct = user_answer == question.correct_answer
-                elif question.type == "fill_in":
-                    is_correct = user_answer.strip().lower() == question.correct_answer.strip().lower()
-                elif question.type == "short_answer":
-                    is_correct = user_answer.strip().lower() in [ans.strip().lower() for ans in question.correct_answer.split("|")]
-
-                score += question.max_points if is_correct else 0
-                results.append({
-                    "question_id": question.id,
-                    "question_text": question.question_text,
-                    "user_answer": user_answer,
-                    "correct_answer": question.correct_answer,
-                    "is_correct": is_correct,
-                    "points": question.max_points if is_correct else 0,
-                })
-
-            return Response({
-                "score": score,
-                "total": total,
-                "results": results,
-            })
+            module_positions = request.data.get('modules', [])
+            with transaction.atomic():
+                for item in module_positions:
+                    module_id = item.get('id')
+                    position = item.get('position')
+                    module = CourseModule.objects.get(id=module_id, course__instructor=request.user)
+                    module.position = position
+                    module.save()
+            return Response({"detail": "Module order updated"}, status=status.HTTP_200_OK)
+        except CourseModule.DoesNotExist:
+            return Response({"detail": "Module not found or unauthorized"}, status=status.HTTP_403_FORBIDDEN)
         except Exception as e:
-            return Response(
-                {"detail": f"An error occurred: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({"detail": f"Error updating module order: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

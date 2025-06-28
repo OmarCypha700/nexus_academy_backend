@@ -1,8 +1,8 @@
 from django.db import models
 from django.conf import settings
+import json
 
 User = settings.AUTH_USER_MODEL
-
 
 class Course(models.Model):
     title = models.CharField(max_length=255)
@@ -34,7 +34,6 @@ class CourseModule(models.Model):
         """Calculate total duration of all lessons in this module"""
         return sum(lesson.duration for lesson in self.lessons.all())
 
-
 # Lesson Model
 class Lesson(models.Model):
     CONTENT_TYPES = [
@@ -57,34 +56,113 @@ class Lesson(models.Model):
     def __str__(self):
         return f"{self.course.title} - {self.title}"
     
-# Quiz Model
 class Quiz(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='quizzes')
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="quizzes")
     title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    shuffle_questions = models.BooleanField(default=False)
+    time_limit = models.PositiveIntegerField(help_text="Time limit in minutes", null=True, blank=True)
+    passing_score = models.DecimalField(max_digits=5, decimal_places=2, default=70.00, help_text="Minimum score to pass")
+    max_attempts = models.PositiveIntegerField(default=3, help_text="Maximum number of attempts allowed")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
 
     def __str__(self):
-        return f"Quiz: {self.title} (Lesson: {self.lesson.title})"
+        return f"{self.lesson.title} - {self.title}"
 
-# Question Model
+    def total_questions(self):
+        return self.questions.count()
+
 class Question(models.Model):
-    QUESTION_TYPES = [
-        ("mcq", "Multiple Choice"),
-        ("fill_in", "Fill in the Blank"),
-        ("short_answer", "Short Answer"),
-    ]
-    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
-    question_text = models.TextField()
-    type = models.CharField(max_length=20, choices=QUESTION_TYPES, default="mcq")
-    option_a = models.CharField(max_length=255, blank=True, null=True)
-    option_b = models.CharField(max_length=255, blank=True, null=True)
-    option_c = models.CharField(max_length=255, blank=True, null=True)
-    option_d = models.CharField(max_length=255, blank=True, null=True)
-    correct_answer = models.TextField()  # For fill-in and short answer, store the expected answer
-    max_points = models.PositiveIntegerField(default=1)
+    QUESTION_TYPES = (
+        ('multiple_choice_single', 'Multiple Choice (Single Answer)'),
+        ('multiple_choice_multiple', 'Multiple Choice (Multiple Answers)'),
+        ('true_false', 'True/False'),
+        ('short_answer', 'Short Answer'),
+    )
+
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name='questions')
+    text = models.TextField()
+    question_type = models.CharField(max_length=50, choices=QUESTION_TYPES)
+    choices = models.JSONField(default=list)
+    correct_answer = models.TextField()  # JSON or string depending on type
+    points = models.PositiveIntegerField(default=1)
+    position = models.PositiveIntegerField(default=0)
+    explanation = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['position']
+        indexes = [
+            models.Index(fields=['quiz', 'position']),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.question_type in ['multiple_choice_single', 'multiple_choice_multiple']:
+            if not self.choices or len(self.choices) < 2:
+                raise ValueError("Multiple choice questions must have at least 2 choices")
+            if self.question_type == 'multiple_choice_single' and not isinstance(self.correct_answer, str):
+                raise ValueError("Single-answer question must have a string correct answer")
+            if self.question_type == 'multiple_choice_multiple' and not isinstance(self.correct_answer, list):
+                raise ValueError("Multiple-answer question must have a list of correct answers")
+        elif self.question_type == 'true_false':
+            self.choices = ['True', 'False']
+            if self.correct_answer not in ['True', 'False']:
+                raise ValueError("True/False question must have 'True' or 'False' as correct answer")
+        elif self.question_type == 'short_answer':
+            self.choices = []
+            if not isinstance(self.correct_answer, str):
+                raise ValueError("Short answer question must have a string correct answer")
+        super().save(*args, **kwargs)
+        
+        # Validate correct_answer
+        valid_labels = [chr(65+i) for i in range(len(self.choices))]
+        if self.question_type == 'multiple_choice_single':
+            if not isinstance(self.correct_answer, str) or not self.correct_answer in valid_labels:
+                raise ValueError("Correct answer must be a valid option label (e.g., 'A')")
+        elif self.question_type == 'multiple_choice_multiple':
+            if not isinstance(self.correct_answer, list) or not all(a in valid_labels for a in self.correct_answer):
+                raise ValueError("Correct answer must be a list of valid option labels (e.g., ['A', 'C'])")
+        elif self.question_type == 'true_false':
+            if not self.correct_answer in ['A', 'B']:
+                raise ValueError("Correct answer must be 'A' or 'B' for True/False")
+        
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.question_text
+            return f"{self.quiz.title} - {self.text[:30]}"
     
+
+class QuizAttempt(models.Model):
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name="quiz_attempts")
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="attempts")
+    score = models.DecimalField(max_digits=5, decimal_places=2)
+    total_points = models.PositiveIntegerField(default=0)
+    earned_points = models.PositiveIntegerField(default=0)
+    passed = models.BooleanField(default=False)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    time_taken = models.PositiveIntegerField(null=True, blank=True, help_text="Time taken in seconds")
+    answers = models.JSONField(default=dict, help_text="{question_id: {'answer': 'user_answer', 'is_correct': bool}}")
+
+    class Meta:
+        ordering = ['-started_at']
+        unique_together = ['student', 'quiz', 'started_at']  # Allow multiple attempts but track them
+        indexes = [
+            models.Index(fields=['quiz', 'student']),
+        ]
+
+    def __str__(self):
+        return f"{self.student.username} - {self.quiz.title} - {self.score}%"
+
+    def save(self, *args, **kwargs):
+        # Calculate if passed based on quiz passing score
+        self.passed = self.score >= self.quiz.passing_score
+        super().save(*args, **kwargs)
     
 # Assignment Model
 class Assignment(models.Model):
@@ -105,6 +183,9 @@ class Enrollment(models.Model):
 
     class Meta:
         unique_together = ("student", "course")  # Prevent duplicate enrollments
+        indexes = [
+            models.Index(fields=['student', 'course']),
+        ]
 
     def __str__(self):
         return f"{self.student.username} enrolled in {self.course.title}"
@@ -145,3 +226,12 @@ class CourseRequirement(models.Model):
     
     def __str__(self):
         return f"{self.course.title} - Requirement: {self.text[:30]}"
+    
+
+# Optional: Track completed lessons
+# class UserProfile(models.Model):
+#     user = models.OneToOneField(User, on_delete=models.CASCADE)
+#     completed_lessons = models.ManyToManyField(Lesson, related_name="completed_by")
+
+#     def __str__(self):
+#         return self.user.username

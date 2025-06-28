@@ -31,7 +31,7 @@ SECRET_KEY = "django-insecure-wa_ihw&zo-klf28p5h68itqwqj33kvq3vb(2ay4l(mlw0@3qhb
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["nexusacadamy.pythonanywhere.com"]
+ALLOWED_HOSTS = ["127.0.0.1","nexusacadamy.pythonanywhere.com","localhost"]
 
 
 # Application definition
@@ -45,8 +45,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "rest_framework_simplejwt",
+    'rest_framework_simplejwt.token_blacklist',
     "corsheaders",
-    "core",
     "authentication",
     "courses",
 ]
@@ -182,3 +182,18 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Use custome User model in auth app instead of default user model
 AUTH_USER_MODEL = "authentication.User"
 
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        '': {
+            'handlers': ['console'],
+            'level': 'INFO',
+        },
+    },
+}

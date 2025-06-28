@@ -1,106 +1,235 @@
 from django.contrib import admin
 from .models import (
-    Course, CourseModule, Lesson, Quiz, Question,
-    Assignment, Enrollment, LessonProgress,
-    CourseOutcome, CourseRequirement
+    Course, CourseModule, Lesson, Quiz, Question, QuizAttempt,
+    Assignment, Enrollment, LessonProgress, CourseOutcome, CourseRequirement
 )
 
-# Inline classes
-class CourseModuleInline(admin.TabularInline):
-    model = CourseModule
+# Inline for Course Outcomes
+class CourseOutcomeInline(admin.TabularInline):
+    model = CourseOutcome
     extra = 1
+    fields = ('text', 'position')
+    ordering = ('position',)
 
+# Inline for Course Requirements
+class CourseRequirementInline(admin.TabularInline):
+    model = CourseRequirement
+    extra = 1
+    fields = ('text', 'position')
+    ordering = ('position',)
+
+# Inline for Lessons within a Module
 class LessonInline(admin.TabularInline):
     model = Lesson
     extra = 1
+    fields = ('title', 'content_type', 'video_id', 'position', 'duration')
+    ordering = ('position',)
+    show_change_link = True
 
-class OutcomeInline(admin.TabularInline):
-    model = CourseOutcome
-    extra = 1
-
-class RequirementInline(admin.TabularInline):
-    model = CourseRequirement
-    extra = 1
-
+# Inline for Quizzes within a Lesson
 class QuizInline(admin.TabularInline):
     model = Quiz
     extra = 1
+    fields = ('title', 'description', 'is_active', 'passing_score', 'max_attempts')
+    show_change_link = True
 
+# Inline for Questions within a Quiz
 class QuestionInline(admin.TabularInline):
     model = Question
     extra = 1
+    fields = ('text', 'question_type', 'choices', 'correct_answer', 'points', 'position')
+    ordering = ('position',)
+    show_change_link = True
 
+# Inline for Assignments within a Lesson
 class AssignmentInline(admin.TabularInline):
     model = Assignment
     extra = 1
+    fields = ('title', 'description', 'due_date')
+    show_change_link = True
 
-
-# Admin classes
+# Admin for Course
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ("title", "instructor", "price", "category", "duration", "rating", "created_at")
-    list_filter = ("category", "instructor", "created_at")
-    search_fields = ("title", "description")
-    inlines = [CourseModuleInline, OutcomeInline, RequirementInline]
+    list_display = ('title', 'instructor', 'category', 'duration', 'rating', 'created_at')
+    list_filter = ('category', 'created_at', 'rating')
+    search_fields = ('title', 'description', 'instructor__username', 'instructor__first_name', 'instructor__last_name')
+    inlines = [CourseOutcomeInline, CourseRequirementInline, LessonInline]
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('title', 'description', 'instructor', 'category')
+        }),
+        ('Details', {
+            'fields': ('price', 'intro_video_id', 'duration', 'rating')
+        }),
+    )
+    ordering = ('-created_at',)
+    list_per_page = 20
 
-
+# Admin for CourseModule
 @admin.register(CourseModule)
 class CourseModuleAdmin(admin.ModelAdmin):
-    list_display = ("title", "course", "position")
-    list_filter = ("course",)
-    search_fields = ("title",)
+    list_display = ('title', 'course', 'position', 'duration_minutes')
+    list_filter = ('course',)
+    search_fields = ('title', 'course__title')
     inlines = [LessonInline]
+    fieldsets = (
+        ('Module Info', {
+            'fields': ('course', 'title', 'position')
+        }),
+    )
+    ordering = ('course', 'position')
+    list_per_page = 20
 
-
+# Admin for Lesson
 @admin.register(Lesson)
 class LessonAdmin(admin.ModelAdmin):
-    list_display = ("title", "course", "module", "content_type", "position", "duration")
-    list_filter = ("course", "module", "content_type")
-    search_fields = ("title", "description")
+    list_display = ('title', 'course', 'module', 'content_type', 'duration', 'position')
+    list_filter = ('course', 'module', 'content_type')
+    search_fields = ('title', 'description', 'course__title')
     inlines = [QuizInline, AssignmentInline]
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('course', 'module', 'title', 'description')
+        }),
+        ('Content Details', {
+            'fields': ('content_type', 'video_id', 'position', 'duration')
+        }),
+    )
+    ordering = ('course', 'position')
+    list_per_page = 20
 
-
+# Admin for Quiz
 @admin.register(Quiz)
 class QuizAdmin(admin.ModelAdmin):
-    list_display = ("title", "lesson")
-    search_fields = ("title",)
+    list_display = ('title', 'lesson', 'course', 'created_by', 'is_active', 'passing_score', 'max_attempts', 'total_questions')
+    list_filter = ('is_active', 'lesson__course', 'created_by')
+    search_fields = ('title', 'description', 'lesson__title')
     inlines = [QuestionInline]
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('lesson', 'title', 'description', 'created_by')
+        }),
+        ('Quiz Settings', {
+            'fields': ('shuffle_questions', 'time_limit', 'passing_score', 'max_attempts', 'is_active')
+        }),
+    )
+    ordering = ('-created_at',)
+    list_per_page = 20
 
-
+# Admin for Question
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ("quiz", "question_text", "correct_answer")
-    search_fields = ("question_text",)
+    list_display = ('text_preview', 'quiz', 'question_type', 'points', 'position')
+    list_filter = ('question_type', 'quiz__lesson__course')
+    search_fields = ('text', 'quiz__title')
+    fieldsets = (
+        ('Question Details', {
+            'fields': ('quiz', 'text', 'question_type', 'choices', 'correct_answer')
+        }),
+        ('Additional Info', {
+            'fields': ('explanation', 'points', 'position')
+        }),
+    )
+    ordering = ('quiz', 'position')
+    list_per_page = 20
 
+    def text_preview(self, obj):
+        return obj.text[:50] + ('...' if len(obj.text) > 50 else '')
+    text_preview.short_description = 'Question Text'
 
+# Admin for QuizAttempt
+@admin.register(QuizAttempt)
+class QuizAttemptAdmin(admin.ModelAdmin):
+    list_display = ('student', 'quiz', 'score', 'passed', 'started_at', 'time_taken')
+    list_filter = ('passed', 'quiz__lesson__course', 'started_at')
+    search_fields = ('student__username', 'quiz__title')
+    fieldsets = (
+        ('Attempt Info', {
+            'fields': ('student', 'quiz', 'score', 'total_points', 'earned_points')
+        }),
+        ('Status & Timing', {
+            'fields': ('passed', 'started_at', 'completed_at', 'time_taken')
+        }),
+        ('Answers', {
+            'fields': ('answers',)
+        }),
+    )
+    readonly_fields = ('started_at', 'completed_at', 'answers')
+    ordering = ('-started_at',)
+    list_per_page = 20
+
+# Admin for Assignment
 @admin.register(Assignment)
 class AssignmentAdmin(admin.ModelAdmin):
-    list_display = ("title", "lesson", "due_date")
-    search_fields = ("title", "description")
-    list_filter = ("due_date",)
+    list_display = ('title', 'lesson', 'due_date')
+    list_filter = ('due_date', 'lesson__course')
+    search_fields = ('title', 'description', 'lesson__title')
+    fieldsets = (
+        ('Assignment Info', {
+            'fields': ('lesson', 'title', 'description')
+        }),
+        ('Details', {
+            'fields': ('file', 'due_date')
+        }),
+    )
+    ordering = ('due_date',)
+    list_per_page = 20
 
-
+# Admin for Enrollment
 @admin.register(Enrollment)
 class EnrollmentAdmin(admin.ModelAdmin):
-    list_display = ("student", "course", "enrolled_at")
-    search_fields = ("student__username", "course__title")
-    list_filter = ("enrolled_at",)
+    list_display = ('student', 'course', 'enrolled_at')
+    list_filter = ('enrolled_at', 'course')
+    search_fields = ('student__username', 'course__title')
+    fieldsets = (
+        ('Enrollment Info', {
+            'fields': ('student', 'course', 'enrolled_at')
+        }),
+    )
+    readonly_fields = ('enrolled_at',)
+    ordering = ('-enrolled_at',)
+    list_per_page = 20
 
-
+# Admin for LessonProgress
 @admin.register(LessonProgress)
 class LessonProgressAdmin(admin.ModelAdmin):
-    list_display = ("student", "lesson", "completed", "completed_at")
-    list_filter = ("completed",)
-    search_fields = ("student__username", "lesson__title")
+    list_display = ('student', 'lesson', 'completed', 'completed_at')
+    list_filter = ('completed', 'lesson__course')
+    search_fields = ('student__username', 'lesson__title')
+    fieldsets = (
+        ('Progress Info', {
+            'fields': ('student', 'lesson', 'completed', 'completed_at')
+        }),
+    )
+    readonly_fields = ('completed_at',)
+    ordering = ('-completed_at',)
+    list_per_page = 20
 
-
+# Admin for CourseOutcome
 @admin.register(CourseOutcome)
 class CourseOutcomeAdmin(admin.ModelAdmin):
-    list_display = ("course", "text", "position")
-    ordering = ("course", "position")
+    list_display = ('course', 'text', 'position')
+    list_filter = ('course',)
+    search_fields = ('text', 'course__title')
+    fieldsets = (
+        ('Outcome Info', {
+            'fields': ('course', 'text', 'position')
+        }),
+    )
+    ordering = ('course', 'position')
+    list_per_page = 20
 
-
+# Admin for CourseRequirement
 @admin.register(CourseRequirement)
 class CourseRequirementAdmin(admin.ModelAdmin):
-    list_display = ("course", "text", "position")
-    ordering = ("course", "position")
+    list_display = ('course', 'text', 'position')
+    list_filter = ('course',)
+    search_fields = ('text', 'course__title')
+    fieldsets = (
+        ('Requirement Info', {
+            'fields': ('course', 'text', 'position')
+        }),
+    )
+    ordering = ('course', 'position')
+    list_per_page = 20
