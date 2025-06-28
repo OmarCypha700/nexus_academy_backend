@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
-    CourseListCreateView, CourseDetailView, CourseSpecificLessons,
-    LessonListCreateView, LessonDetailView,
+    PublicCourseListView, InstructorCourseListView, PublicCourseDetailView, InstructorCourseDetailView, 
+    CourseSpecificLessons, LessonListCreateView, LessonDetailView,
     AssignmentListCreateView, AssignmentDetailView,
     EnrollmentView, LessonProgressView,
     UserDashboardView, EnrollmentCheckView,
@@ -36,8 +36,12 @@ quiz_patterns = [
 ]
 
 urlpatterns = [
-    path("courses/", CourseListCreateView.as_view(), name="course-list"),
-    path("courses/<int:pk>/", CourseDetailView.as_view(), name="course-detail"),
+    path("courses/", PublicCourseListView.as_view(), name="course-list"),
+    path("courses/<int:pk>/", PublicCourseDetailView.as_view(), name="course-detail"),
+
+    path("instructor/courses/", InstructorCourseListView.as_view(), name="course-list"),
+    path("instructor/courses/<int:pk>/", InstructorCourseDetailView.as_view(), name="course-detail"),
+
     path("modules/", ModuleCreateView.as_view(), name='module-create'),
     path("modules/<int:pk>/", ModuleDetailView.as_view(), name='module-create'),
 

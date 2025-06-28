@@ -70,45 +70,72 @@ class UserDashboardView(APIView):
         })
     
 # Course Views
-class CourseListCreateView(generics.ListCreateAPIView):
+
+class PublicCourseListView(generics.ListAPIView):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.AllowAny]  # No login needed
 
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
-        print(f"GET request to {request.path} by {request.user}")
+        print(f"Public GET request to {request.path} by {request.user}")
+        return response
+
+
+class InstructorCourseListView(generics.ListCreateAPIView):
+    serializer_class = CourseSerializer
+    permission_classes = [permissions.IsAuthenticated]  # Login required
+
+    def get_queryset(self):
+        return Course.objects.filter(instructor=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(instructor=self.request.user)  # Automatically set instructor
+
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        print(f"Instructor GET request to {request.path} by {request.user}")
         print(f"Response: {response.data}")  # Print the response data to the console
         return response
 
     def post(self, request, *args, **kwargs):
-        # permission_classes = [permissions.IsAuthenticated]
         response = super().post(request, *args, **kwargs)
-        print(f"POST request to {request.path} by {request.user}")
+        print(f"Instructor POST to {request.path} by {request.user}")
         print(f"Response: {response.data}")  # Print the response data to the console
-        return response
 
-class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
+        return response
+    
+class PublicCourseDetailView(generics.RetrieveAPIView):
     queryset = Course.objects.all()
     serializer_class = CourseDetailSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # No login needed
 
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
-        print(f"GET request to {request.path} by {request.user}")
-        print(f"Response: {response.data}")  # Print the response data to the console
+        print(f"Public GET course detail {request.path} by {request.user}")
+        print(f"Response: {response.data}")
+        return response
+    
+class InstructorCourseDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = CourseSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Course.objects.filter(instructor=self.request.user)
+
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        print(f"Instructor GET {request.path} by {request.user}")
         return response
 
     def put(self, request, *args, **kwargs):
         response = super().put(request, *args, **kwargs)
-        print(f"PUT request to {request.path} by {request.user}")
-        print(f"Response: {response.data}")  # Print the response data to the console
+        print(f"Instructor PUT {request.path} by {request.user}")
         return response
 
     def delete(self, request, *args, **kwargs):
         response = super().delete(request, *args, **kwargs)
-        print(f"DELETE request to {request.path} by {request.user}")
-        print(f"Response: {response.data}")  # Print the response data to the console
+        print(f"Instructor DELETE {request.path} by {request.user}")
         return response
 
 

@@ -62,7 +62,7 @@ class CourseSerializer(serializers.ModelSerializer):
                  "instructor", "instructor_details", "created_at", "category", 
                  "duration", "rating", "modules", "total_lessons", 
                  "outcomes", "requirements", "progress_percent"]
-        read_only_fields = ["created_at"]  # Admin can assign instructor manually
+        read_only_fields = ["created_at"]
     
     def get_instructor_details(self, obj):
         if obj.instructor:
