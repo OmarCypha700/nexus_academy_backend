@@ -1,3 +1,62 @@
-/.venv/
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Django
+*.log
+db.sqlite3
+media/
+staticfiles/
+local_settings.py
+
+# Environment
 .env
-nexus_backend/.env
+.venv/
+venv/
+ENV/
+env/
+*.env
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# PyCharm
+.idea/
+
+# Migrations (optional — keep if auto-generated migrations are committed)
+**/migrations/**/__pycache__/
+**/migrations/**/ 
+
+# Node (if using npm/yarn for frontend)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Coverage reports
+htmlcov/
+.coverage
+.tox/
+.pytest_cache/
+.cache/
+
+# Others
+*.bak
+*.swp
+*.swo
