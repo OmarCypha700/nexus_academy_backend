@@ -25,7 +25,15 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ["id", "username", "email", "password", "role"]
 
     def create(self, validated_data):
-        user = User.objects.create_user(**validated_data)
+        role = validated_data.get("role", "").lower()
+
+        if role == "instructor":
+            validated_data["is_instructor"] = True
+
+        password = validated_data.pop("password")
+        user = User(**validated_data)
+        user.set_password(password)
+        user.save()
         return user
 
 class InstructorSerializer(serializers.ModelSerializer):
