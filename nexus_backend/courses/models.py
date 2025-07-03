@@ -11,10 +11,10 @@ class Course(models.Model):
     intro_video_id = models.CharField(max_length=50, blank=True, null=True)  # YouTube Video ID for Intro
     instructor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="courses")
     created_at = models.DateTimeField(auto_now_add=True)
-    
     category = models.CharField(max_length=100, blank=True, null=True)
     duration = models.PositiveIntegerField(help_text="Duration in minutes", default=0)
     rating = models.DecimalField(max_digits=3, decimal_places=1, default=0.0)
+    is_published = models.BooleanField(default=False)
     
     def __str__(self):
         return self.title

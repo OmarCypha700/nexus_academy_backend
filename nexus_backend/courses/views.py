@@ -72,9 +72,9 @@ class UserDashboardView(APIView):
 # Course Views
 
 class PublicCourseListView(generics.ListAPIView):
-    queryset = Course.objects.all()
+    queryset = Course.objects.filter(is_published=True)
     serializer_class = CourseSerializer
-    permission_classes = [permissions.AllowAny]  # No login needed
+    permission_classes = [permissions.AllowAny]
 
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
@@ -84,7 +84,7 @@ class PublicCourseListView(generics.ListAPIView):
 
 class InstructorCourseListView(generics.ListCreateAPIView):
     serializer_class = CourseSerializer
-    permission_classes = [permissions.IsAuthenticated]  # Login required
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return Course.objects.filter(instructor=self.request.user)

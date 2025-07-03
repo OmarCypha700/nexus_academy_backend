@@ -51,13 +51,13 @@ class AssignmentInline(admin.TabularInline):
 # Admin for Course
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('title', 'instructor', 'category', 'duration', 'rating', 'created_at')
-    list_filter = ('category', 'created_at', 'rating')
+    list_display = ('title', 'instructor', 'is_published', 'duration', 'rating', 'created_at')
+    list_filter = ('is_published', 'created_at', 'rating')
     search_fields = ('title', 'description', 'instructor__username', 'instructor__first_name', 'instructor__last_name')
     inlines = [CourseOutcomeInline, CourseRequirementInline, LessonInline]
     fieldsets = (
         ('Basic Information', {
-            'fields': ('title', 'description', 'instructor', 'category')
+            'fields': ('title', 'description', 'instructor', 'is_published')
         }),
         ('Details', {
             'fields': ('price', 'intro_video_id', 'duration', 'rating')

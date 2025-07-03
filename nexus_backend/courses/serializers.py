@@ -59,7 +59,7 @@ class CourseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
         fields = ["id", "title", "description", "price", "intro_video_id", 
-                 "instructor", "instructor_details", "created_at", "category", 
+                 "instructor", "instructor_details", "created_at", "category", "is_published", 
                  "duration", "rating", "modules", "total_lessons", 
                  "outcomes", "requirements", "progress_percent"]
         read_only_fields = ["created_at"]
