@@ -5,6 +5,8 @@ from rest_framework import status
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+
+from django.db.models import Max
 from .permissions import IsCreatorOrEnrolled, IsQuizInstructor, IsCourseInstructor
 from django.utils import timezone
 from django.db import transaction
@@ -13,13 +15,13 @@ from django.utils.timezone import now
 from rest_framework.response import Response
 from .models import (Course, Lesson, Assignment, 
                      Enrollment, LessonProgress, CourseRequirement, 
-                     CourseOutcome, CourseModule, Quiz, 
-                     Question, QuizAttempt)
+                     CourseOutcome, CourseModule, Quiz, LessonContent,
+                     Question, QuizAttempt, Resource)
 from .serializers import (
     CourseSerializer, LessonSerializer, AssignmentSerializer, 
     EnrollmentSerializer, LessonProgressSerializer, CourseDetailSerializer, 
-    ModuleCreateSerializer, QuestionSerializer, 
-    # BulkCourseOutcomeSerializer, BulkCourseRequirementSerializer, CourseOutcomeSerializer,CourseRequirementSerializer, 
+    ModuleCreateSerializer, QuestionSerializer,LessonContentSerializer, ResourceSerializer,
+    BulkCourseOutcomeSerializer, BulkCourseRequirementSerializer, CourseOutcomeSerializer,CourseRequirementSerializer, 
     QuizSerializer, QuizListSerializer, 
     QuizAttemptSerializer, QuizResultSerializer, QuizDashboardSerializer
 )
@@ -70,7 +72,6 @@ class UserDashboardView(APIView):
         })
     
 # Course Views
-
 class PublicCourseListView(generics.ListAPIView):
     queryset = Course.objects.filter(is_published=True)
     serializer_class = CourseSerializer
@@ -80,7 +81,6 @@ class PublicCourseListView(generics.ListAPIView):
         response = super().get(request, *args, **kwargs)
         print(f"Public GET request to {request.path} by {request.user}")
         return response
-
 
 class InstructorCourseListView(generics.ListCreateAPIView):
     serializer_class = CourseSerializer
@@ -139,71 +139,136 @@ class InstructorCourseDetailView(generics.RetrieveUpdateDestroyAPIView):
         return response
 
 
-# class BulkCourseOutcomeView(APIView):
-#     permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
+class BulkCourseOutcomeView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
 
-#     def post(self, request):
-#         course_id = request.data.get('course')
-#         if not course_id:
-#             return Response({"detail": "course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+    def post(self, request):
+        course_id = request.data.get('course')
+        if not course_id:
+            return Response({"detail": "course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-#         serializer = BulkCourseOutcomeSerializer(data=request.data)
-#         if serializer.is_valid():
-#             try:
-#                 with transaction.atomic():
-#                     course = Course.objects.get(id=course_id)
-#                     outcomes_data = serializer.validated_data.get('outcomes', [])
-#                     created_outcomes = []
-#                     for outcome_data in outcomes_data:
-#                         outcome = CourseOutcome(
-#                             course=course,
-#                             text=outcome_data['text'],
-#                             position=outcome_data.get('position', 0)
-#                         )
-#                         outcome.save()
-#                         created_outcomes.append(CourseOutcomeSerializer(outcome).data)
-#                     return Response({
-#                         "detail": "Course outcomes created successfully",
-#                         "outcomes": created_outcomes
-#                     }, status=status.HTTP_201_CREATED)
-#             except Course.DoesNotExist:
-#                 return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
-#             except Exception as e:
-#                 return Response({"detail": f"Error creating outcomes: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer = BulkCourseOutcomeSerializer(data=request.data)
+        if serializer.is_valid():
+            try:
+                with transaction.atomic():
+                    course = Course.objects.get(id=course_id)
+                    if course.instructor != request.user:
+                        return Response({"detail": "You are not authorized to modify this course"}, status=status.HTTP_403_FORBIDDEN)
+                    outcomes_data = serializer.validated_data.get('outcomes', [])
+                    created_outcomes = []
+                    for outcome_data in outcomes_data:
+                        outcome = CourseOutcome(
+                            course=course,
+                            text=outcome_data['text'],
+                            position=outcome_data.get('position', 0)
+                        )
+                        outcome.save()
+                        created_outcomes.append(CourseOutcomeSerializer(outcome).data)
+                    return Response({
+                        "detail": "Course outcomes created successfully",
+                        "outcomes": created_outcomes
+                    }, status=status.HTTP_201_CREATED)
+            except Course.DoesNotExist:
+                return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+            except Exception as e:
+                return Response({"detail": f"Error creating outcomes: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# class BulkCourseRequirementView(APIView):
-#     permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
+class BulkCourseRequirementView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
 
-#     def post(self, request):
-#         course_id = request.data.get('course_id')
-#         if not course_id:
-#             return Response({"detail": "course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+    def post(self, request):
+        course_id = request.data.get('course_id')
+        if not course_id:
+            return Response({"detail": "course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-#         serializer = BulkCourseRequirementSerializer(data=request.data)
-#         if serializer.is_valid():
-#             try:
-#                 with transaction.atomic():
-#                     course = Course.objects.get(id=course_id)
-#                     requirements_data = serializer.validated_data.get('requirements', [])
-#                     created_requirements = []
-#                     for req_data in requirements_data:
-#                         requirement = CourseRequirement(
-#                             course=course,
-#                             text=req_data['text'],
-#                             position=req_data.get('position', 0)
-#                         )
-#                         requirement.save()
-#                         created_requirements.append(CourseRequirementSerializer(requirement).data)
-#                     return Response({
-#                         "detail": "Course requirements created successfully",
-#                         "requirements": created_requirements
-#                     }, status=status.HTTP_201_CREATED)
-#             except Course.DoesNotExist:
-#                 return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
-#             except Exception as e:
-#                 return Response({"detail": f"Error creating requirements: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer = BulkCourseRequirementSerializer(data=request.data)
+        if serializer.is_valid():
+            try:
+                with transaction.atomic():
+                    course = Course.objects.get(id=course_id)
+                    if course.instructor != request.user:
+                        return Response({"detail": "You are not authorized to modify this course"}, status=status.HTTP_403_FORBIDDEN)
+                    requirements_data = serializer.validated_data.get('requirements', [])
+                    created_requirements = []
+                    for req_data in requirements_data:
+                        requirement = CourseRequirement(
+                            course=course,
+                            text=req_data['text'],
+                            position=req_data.get('position', 0)
+                        )
+                        requirement.save()
+                        created_requirements.append(CourseRequirementSerializer(requirement).data)
+                    return Response({
+                        "detail": "Course requirements created successfully",
+                        "requirements": created_requirements
+                    }, status=status.HTTP_201_CREATED)
+            except Course.DoesNotExist:
+                return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+            except Exception as e:
+                return Response({"detail": f"Error creating requirements: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class CourseOutcomeListCreateView(generics.ListCreateAPIView):
+    serializer_class = CourseOutcomeSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
+
+    def get_queryset(self):
+        course_id = self.kwargs.get('course_id')
+        return CourseOutcome.objects.filter(course_id=course_id)
+
+    def perform_create(self, serializer):
+        course_id = self.kwargs.get('course_id')
+        course = get_object_or_404(Course, id=course_id)
+        if course.instructor != self.request.user:
+            raise PermissionDenied("You are not authorized to add outcomes to this course")
+        max_position = CourseOutcome.objects.filter(course_id=course_id).aggregate(Max('position'))['position__max'] or 0
+        serializer.save(course=course, position=max_position + 1)
+
+class CourseOutcomeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = CourseOutcomeSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
+
+    def get_queryset(self):
+        course_id = self.kwargs.get('course_id')
+        return CourseOutcome.objects.filter(course_id=course_id)
+
+    def get_object(self):
+        obj = super().get_object()
+        if obj.course.instructor != self.request.user:
+            raise PermissionDenied("You are not authorized to modify this outcome")
+        return obj
+
+class CourseRequirementListCreateView(generics.ListCreateAPIView):
+    serializer_class = CourseRequirementSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
+
+    def get_queryset(self):
+        course_id = self.kwargs.get('course_id')
+        return CourseRequirement.objects.filter(course_id=course_id)
+
+    def perform_create(self, serializer):
+        course_id = self.kwargs.get('course_id')
+        course = get_object_or_404(Course, id=course_id)
+        if course.instructor != self.request.user:
+            raise PermissionDenied("You are not authorized to add requirements to this course")
+        max_position = CourseRequirement.objects.filter(course_id=course_id).aggregate(Max('position'))['position__max'] or 0
+        serializer.save(course=course, position=max_position + 1)
+
+class CourseRequirementDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = CourseRequirementSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
+
+    def get_queryset(self):
+        course_id = self.kwargs.get('course_id')
+        return CourseRequirement.objects.filter(course_id=course_id)
+
+    def get_object(self):
+        obj = super().get_object()
+        if obj.course.instructor != self.request.user:
+            raise PermissionDenied("You are not authorized to modify this requirement")
+        return obj
+    
 
 # Lesson Views
 class CourseSpecificLessons(APIView):
@@ -243,16 +308,95 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
         return response
 
     def put(self, request, *args, **kwargs):
-        response = super().put(request, *args, **kwargs)
+        instance = self.get_object()
         print(f"PUT request to {request.path} by {request.user}")
-        print(f"Response: {response.data}")  # Print the response data to the console
-        return response
+        serializer = self.get_serializer(instance, data=request.data, partial=False)
+        if serializer.is_valid():
+            with transaction.atomic():
+                self.perform_update(serializer)
+            return Response(serializer.data)
+        # print(f"Response: {Response}")  # Print the response data to the console
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def perform_update(self, serializer):
+        serializer.save()
+
+    # def put(self, request, *args, **kwargs):
+    #     response = super().put(request, *args, **kwargs)
+    #     print(f"PUT request to {request.path} by {request.user}")
+    #     print(f"Response: {response.data}")  # Print the response data to the console
+    #     return response
 
     def delete(self, request, *args, **kwargs):
         response = super().delete(request, *args, **kwargs)
         print(f"DELETE request to {request.path} by {request.user}")
         print(f"Response: {response.data}")  # Print the response data to the console
         return response
+
+class LessonContentListCreateView(generics.ListCreateAPIView):
+    serializer_class = LessonContentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Retrieve LessonContent for a specific lesson based on the lesson_id from URL kwargs
+        lesson_id = self.kwargs.get('pk')
+        lesson = get_object_or_404(Lesson, id=lesson_id)
+        return LessonContent.objects.filter(lesson=lesson).order_by('position')
+
+    def get(self, request, *args, **kwargs):
+        # Optimize response by prefetching related data if needed (currently none for LessonContent)
+        response = super().get(request, *args, **kwargs)
+        print(f"GET request to /lessons/{kwargs['pk']}/contents/ by {request.user}")
+        print(f"Response: {response.data}")
+        return response
+
+    def post(self, request, *args, **kwargs):
+        # Ensure the lesson exists and the user has permission to modify it
+        lesson_id = kwargs.get('pk')
+        lesson = get_object_or_404(Lesson, id=lesson_id)
+        if lesson.course.instructor != request.user:
+            return Response({"detail": "You are not authorized to modify this lesson's content"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            with transaction.atomic():
+                # Assign the lesson to the new content and save
+                serializer.validated_data['lesson'] = lesson
+                self.perform_create(serializer)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def perform_create(self, serializer):
+        # Automatically set the position based on the current max position + 1
+        lesson_id = self.kwargs.get('pk')
+        max_position = LessonContent.objects.filter(lesson_id=lesson_id).aggregate(Max('position'))['position__max'] or 0
+        serializer.save(position=max_position + 1)
+
+class LessonResourcesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, lesson_id):
+        try:
+            lesson = get_object_or_404(Lesson, id=lesson_id)
+            is_enrolled = lesson.course.enrollments.filter(student=request.user).exists()
+            if not is_enrolled:
+                return Response(
+                    {"detail": "You are not enrolled in the course containing this lesson"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            resources = Resource.objects.filter(lesson_id=lesson_id).order_by('position')
+            serializer = ResourceSerializer(resources, many=True)
+            return Response({
+                "lesson_id": lesson_id,
+                "lesson_title": lesson.title,
+                "resources": serializer.data
+            })
+        except Exception as e:
+            logger.error(f"Error fetching resources for lesson {lesson_id}: {str(e)}")
+            return Response(
+                {"detail": f"An error occurred: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class ModuleCreateView(generics.ListCreateAPIView):
     queryset = CourseModule.objects.all()
@@ -321,7 +465,6 @@ class QuizDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
     permission_classes = [permissions.IsAuthenticated, IsCreatorOrEnrolled]
-
 
 class QuestionListCreateView(generics.ListCreateAPIView):
     serializer_class = QuestionSerializer
@@ -665,47 +808,31 @@ class LessonProgressView(generics.CreateAPIView):
 
     def get_serializer_context(self):
         return {"request": self.request}
-
-class EnrolledCourseDetailView(APIView, LoginRequiredMixin):
-    permission_classes = [IsAuthenticated]
     
+class EnrolledCourseDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, course_id):
-        """Get detailed course content for enrolled users, including quizzes and questions"""
         try:
             print(f"DEBUG: Processing request for course {course_id} by user {request.user.id}")
-            
-            # Check if user is enrolled
             enrollment_exists = Enrollment.objects.filter(
                 student=request.user,
                 course_id=course_id
             ).exists()
-            
             print(f"DEBUG: User enrolled: {enrollment_exists}")
-            
             if not enrollment_exists:
                 return Response(
-                    {"detail": "Course not found or you're not enrolled in this course"}, 
+                    {"detail": "Course not found or you're not enrolled in this course"},
                     status=status.HTTP_404_NOT_FOUND
                 )
-                
-            # Get course with all necessary data
-            course = Course.objects.filter(id=course_id).first()
-            
+            course = Course.objects.filter(id=course_id).prefetch_related(
+                Prefetch('modules', queryset=CourseModule.objects.prefetch_related(
+                    Prefetch('lessons', queryset=Lesson.objects.prefetch_related('contents', 'quizzes', 'assignments', 'resources'))
+                ))
+            ).first()
             print(f"DEBUG: Course found: {course is not None}")
-            
             if not course:
                 return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
-            
-            # Get lessons with progress info
-            try:
-                lessons = Lesson.objects.filter(course=course).order_by('position')
-                print(f"DEBUG: Lessons ordered by 'position' field, found {lessons.count()} lessons")
-            except Exception as field_error:
-                print(f"DEBUG: 'position' field error: {str(field_error)}")
-                lessons = Lesson.objects.filter(course=course)
-                print(f"DEBUG: Retrieved lessons without ordering, found {lessons.count()} lessons")
-            
-            # Get completed lessons for this user
             completed_lessons = set(
                 LessonProgress.objects.filter(
                     student=request.user,
@@ -713,164 +840,51 @@ class EnrolledCourseDetailView(APIView, LoginRequiredMixin):
                     completed=True
                 ).values_list('lesson_id', flat=True)
             )
-            
             print(f"DEBUG: Found {len(completed_lessons)} completed lessons")
-            
-            # Create response structure
-            modules = []
-            
-            for lesson in lessons:
-                # Correctly get the module instance
-                module_instance = lesson.module
-                if not module_instance:
-                    module_title = "Main Module"
-                    module_id = 1
-                else:
-                    module_title = module_instance.title
-                    module_id = module_instance.id
-
-                print(f"DEBUG: Processing lesson {lesson.id} in module '{module_title}' (ID: {module_id})")
-                
-                # Find existing module or create new one
-                module = next((m for m in modules if m['id'] == module_id), None)
-                if not module:
-                    module = {
-                        'id': module_id,
-                        'title': module_title,
-                        'description': getattr(module_instance, 'description', ''),
-                        'lessons': []
-                    }
-                    modules.append(module)
-
-                # Determine the type of content
-                def determine_content_type(lesson):
-                    """
-                    Determine the primary content type of a lesson based on its attributes.
-                    
-                    Args:
-                        lesson: A Lesson object with various attributes
-                        
-                    Returns:
-                        str: The content type identifier ('video', 'text', 'quiz', 'assignment', etc.)
-                    """
-                    if hasattr(lesson, 'video_id') and lesson.video_id:
-                        return 'video'
-                    
-                    quizzes = Quiz.objects.filter(lesson_id=lesson.id)
-                    if quizzes.exists():
-                        return 'quiz'
-                    
-                    if Assignment.objects.filter(lesson_id=lesson.id).exists():
-                        return 'assignment'
-                    
-                    if (hasattr(lesson, 'content') and lesson.content) or (hasattr(lesson, 'text_content') and lesson.text_content):
-                        return 'text'
-                    
-                    if hasattr(lesson, 'attachment') and lesson.attachment:
-                        return 'download'
-                    
-                    if hasattr(lesson, 'interactive') and lesson.interactive:
-                        return 'interactive'
-                    
-                    return 'content'
-                
-                # Get quizzes and their questions for this lesson
-                quizzes = Quiz.objects.filter(lesson_id=lesson.id)
-                quiz_data = []
-                for quiz in quizzes:
-                    # Get quiz attempts for this user
-                    attempts = QuizAttempt.objects.filter(
-                        student=request.user,
-                        quiz=quiz
-                    ).count()
-                    quiz_info = {
-                        'id': quiz.id,
-                        'title': quiz.title,
-                        'description': quiz.description,
-                        'is_active': quiz.is_active,
-                        'passing_score': quiz.passing_score,
-                        'max_attempts': quiz.max_attempts,
-                        'attempts_count': attempts,
-                        'can_attempt': quiz.is_active and (attempts < quiz.max_attempts),
-                        'shuffle_questions': quiz.shuffle_questions,
-                        'time_limit': quiz.time_limit,
-                        'questions': []
-                    }
-                    # Get questions for this quiz
-                    questions = Question.objects.filter(quiz=quiz).order_by('position')
-                    for question in questions:
-                        question_data = {
-                            'id': question.id,
-                            'text': question.text,
-                            'question_type': question.question_type,
-                            'choices': question.choices if question.choices else [],
-                            'points': question.points,
-                            'position': question.position
-                        }
-                        quiz_info['questions'].append(question_data)
-                    quiz_data.append(quiz_info)
-                
-                # Get assignments for this lesson
-                assignments = Assignment.objects.filter(lesson_id=lesson.id)
-                assignment_data = [{
-                    'id': assignment.id,
-                    'title': assignment.title,
-                    'description': assignment.description,
-                    'due_date': assignment.due_date
-                } for assignment in assignments]
-                
-                # Build lesson data
-                lesson_data = {
-                    'id': lesson.id,
-                    'title': lesson.title,
-                    'type': determine_content_type(lesson),
-                    'duration': getattr(lesson, 'duration', 0),
-                    'video_id': getattr(lesson, 'video_id', ''),
-                    'description': getattr(lesson, 'description', ''),
-                    'completed': lesson.id in completed_lessons,
-                    'quizzes': quiz_data,
-                    'assignments': assignment_data
-                }
-                
-                module['lessons'].append(lesson_data)
-            
-            # Calculate overall progress
-            total_lessons = lessons.count()
-            completed_count = len(completed_lessons)
-            progress_percent = round((completed_count / total_lessons) * 100, 1) if total_lessons else 0.0
-            
-            # Safely access instructor if it exists
-            instructor_name = ""
-            if hasattr(course, 'instructor'):
-                instructor = course.instructor
-                if hasattr(instructor, 'get_full_name'):
-                    instructor_name = instructor.get_full_name()
-                elif hasattr(instructor, 'username'):
-                    instructor_name = instructor.username
-            
-            response_data = {
-                'id': course.id,
-                'title': course.title,
-                'description': getattr(course, 'description', ''),
-                'instructor': instructor_name,
-                'duration': getattr(course, 'duration', 0),
-                'modules': modules,
-                'progress': progress_percent,
-                'completed_lessons': list(completed_lessons)
-            }
-            
+            serializer = CourseSerializer(
+                course,
+                context={'request': request, 'completed_lessons': completed_lessons}
+            )
             print(f"DEBUG: Successfully built response for course {course_id}")
-            return Response(response_data)
-            
+            return Response(serializer.data)
         except Exception as e:
             import traceback
             print(f"ERROR: Exception in EnrolledCourseDetailView: {str(e)}")
             traceback.print_exc()
             return Response(
-                {"detail": "An error occurred while fetching the course"}, 
+                {"detail": "An error occurred while fetching the course"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
+
+class ResourceDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Resource.objects.all()
+    serializer_class = ResourceSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]
+
+    def get_object(self):
+        resource = super().get_object()
+        if resource.lesson.course.instructor != self.request.user:
+            raise PermissionDenied("You are not authorized to modify this resource")
+        return resource
+
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        logger.info(f"GET request to {request.path} by {request.user}")
+        logger.info(f"Response: {response.data}")
+        return response
+
+    def put(self, request, *args, **kwargs):
+        response = super().put(request, *args, **kwargs)
+        logger.info(f"PUT request to {request.path} by {request.user}")
+        logger.info(f"Response: {response.data}")
+        return response
+
+    def delete(self, request, *args, **kwargs):
+        response = super().delete(request, *args, **kwargs)
+        logger.info(f"DELETE request to {request.path} by {request.user}")
+        logger.info(f"Response: {response.data}")
+        return response
+
 class EnrollmentProgressView(APIView):
     permission_classes = [IsAuthenticated]
     

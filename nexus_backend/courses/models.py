@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 import json
+from django.forms import ValidationError
 
 User = settings.AUTH_USER_MODEL
 
@@ -34,28 +35,66 @@ class CourseModule(models.Model):
         """Calculate total duration of all lessons in this module"""
         return sum(lesson.duration for lesson in self.lessons.all())
 
-# Lesson Model
 class Lesson(models.Model):
-    CONTENT_TYPES = [
-        ('video', 'Video Lesson'),
-        ('text', 'Text Lesson'),
-        ('mixed', 'Mixed Content')
-    ]
-    content_type = models.CharField(max_length=20, choices=CONTENT_TYPES, default='text')
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="lessons")
     module = models.ForeignKey(CourseModule, on_delete=models.CASCADE, related_name="lessons", null=True)
     title = models.CharField(max_length=255)
-    description = models.TextField()
-    video_id = models.CharField(max_length=50, blank=True, null=True)  # YouTube Video ID for Lesson
-    position = models.PositiveIntegerField(default=0)  # Order of lessons in the course
-    duration = models.PositiveIntegerField(help_text="Duration in minutes", default=0)
-    
+    description = models.TextField(blank=True, null=True)
+    position = models.PositiveIntegerField(default=0)
+    duration = models.PositiveIntegerField(help_text="Total duration in minutes", default=0)
+
     class Meta:
         ordering = ['position']
 
     def __str__(self):
         return f"{self.course.title} - {self.title}"
-    
+
+
+class LessonContent(models.Model):
+    CONTENT_TYPES = [
+        ('video', 'Video'),
+        ('text', 'Text'),
+    ]
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="contents")
+    content_type = models.CharField(max_length=20, choices=CONTENT_TYPES, default='text')
+    title = models.CharField(max_length=255, default="")
+    video_id = models.CharField(max_length=50, blank=True, null=True, help_text="YouTube Video ID (11 characters)")
+    text_content = models.TextField(blank=True, null=True)
+    position = models.PositiveIntegerField(default=0, help_text="Order of content in the lesson")
+    duration = models.PositiveIntegerField(help_text="Total duration in minutes", default=0)
+
+    class Meta:
+        ordering = ['position']
+        unique_together = ('lesson', 'position')
+
+    def __str__(self):
+        return f"{self.lesson.title} - Content {self.position} ({self.content_type})"
+
+    def clean(self):
+        if self.content_type == 'video' and self.video_id and len(self.video_id) != 11:
+            raise ValidationError("Video ID must be 11 characters long for YouTube.")
+
+
+class Resource(models.Model):
+    RESOURCE_TYPES = [
+        ('link', 'Webpage Link'),
+        ('document', 'Document'),
+    ]
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="resources")
+    title = models.CharField(max_length=255)
+    url = models.URLField(max_length=500)
+    resource_type = models.CharField(max_length=20, choices=RESOURCE_TYPES, default='link')
+    description = models.TextField(blank=True, null=True)
+    position = models.PositiveIntegerField(default=0, help_text="Order of resource in the lesson")
+
+    class Meta:
+        ordering = ['position']
+        unique_together = ('lesson', 'position')
+
+    def __str__(self):
+        return f"{self.lesson.title} - Resource: {self.title} ({self.resource_type})"
+
+
 class Quiz(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='quizzes')
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="quizzes")

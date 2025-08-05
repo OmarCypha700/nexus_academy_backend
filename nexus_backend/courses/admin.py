@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Course, CourseModule, Lesson, Quiz, Question, QuizAttempt,
-    Assignment, Enrollment, LessonProgress, CourseOutcome, CourseRequirement
+    Assignment, Enrollment, LessonProgress, CourseOutcome, CourseRequirement, LessonContent
 )
 
 # Inline for Course Outcomes
@@ -22,7 +22,7 @@ class CourseRequirementInline(admin.TabularInline):
 class LessonInline(admin.TabularInline):
     model = Lesson
     extra = 1
-    fields = ('title', 'content_type', 'video_id', 'position', 'duration')
+    fields = ('title', 'description', 'position', 'duration')
     ordering = ('position',)
     show_change_link = True
 
@@ -48,13 +48,21 @@ class AssignmentInline(admin.TabularInline):
     fields = ('title', 'description', 'due_date')
     show_change_link = True
 
+# Inline for LessonContent within a Lesson
+class LessonContentInline(admin.TabularInline):
+    model = LessonContent
+    extra = 1
+    fields = ('content_type', 'title', 'video_id', 'text_content', 'position')
+    ordering = ('position',)
+    show_change_link = True
+
 # Admin for Course
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
     list_display = ('title', 'instructor', 'is_published', 'duration', 'rating', 'created_at')
     list_filter = ('is_published', 'created_at', 'rating')
     search_fields = ('title', 'description', 'instructor__username', 'instructor__first_name', 'instructor__last_name')
-    inlines = [CourseOutcomeInline, CourseRequirementInline, LessonInline]
+    inlines = [CourseOutcomeInline, CourseRequirementInline, LessonInline] 
     fieldsets = (
         ('Basic Information', {
             'fields': ('title', 'description', 'instructor', 'is_published')
@@ -84,20 +92,41 @@ class CourseModuleAdmin(admin.ModelAdmin):
 # Admin for Lesson
 @admin.register(Lesson)
 class LessonAdmin(admin.ModelAdmin):
-    list_display = ('title', 'course', 'module', 'content_type', 'duration', 'position')
-    list_filter = ('course', 'module', 'content_type')
+    list_display = ('title', 'course', 'module', 'duration', 'position')
+    list_filter = ('course', 'module')
     search_fields = ('title', 'description', 'course__title')
-    inlines = [QuizInline, AssignmentInline]
+    inlines = [LessonContentInline, QuizInline, AssignmentInline]  # Added LessonContentInline
     fieldsets = (
         ('Basic Information', {
-            'fields': ('course', 'module', 'title', 'description')
+            'fields': ('course', 'module', 'title')
         }),
         ('Content Details', {
-            'fields': ('content_type', 'video_id', 'position', 'duration')
+            'fields': ( 'description','position', 'duration')
         }),
     )
     ordering = ('course', 'position')
     list_per_page = 20
+
+# Admin for LessonContent
+@admin.register(LessonContent)
+class LessonContentAdmin(admin.ModelAdmin):
+    list_display = ('lesson', 'content_type', 'title', 'position', 'video_id_preview')
+    list_filter = ('content_type', 'lesson__course', 'lesson__module')
+    search_fields = ('lesson__title', 'text_content')
+    fieldsets = (
+        ('Content Info', {
+            'fields': ('lesson', 'content_type', 'title', 'video_id', 'text_content')
+        }),
+        ('Position', {
+            'fields': ('position',)
+        }),
+    )
+    ordering = ('lesson', 'position')
+    list_per_page = 20
+
+    def video_id_preview(self, obj):
+        return obj.video_id[:10] + ('...' if obj.video_id and len(obj.video_id) > 10 else '')
+    video_id_preview.short_description = 'Video ID'
 
 # Admin for Quiz
 @admin.register(Quiz)

@@ -1,8 +1,9 @@
 from rest_framework import serializers
+from django.db import models
 from .models import (
-    Course, Lesson, Assignment, Enrollment, 
+    Course, Lesson, LessonContent, Assignment, Enrollment, 
     LessonProgress, CourseModule, CourseOutcome, CourseRequirement,
-    Quiz, Question, QuizAttempt
+    Quiz, Question, QuizAttempt, Resource
     )
 from django.contrib.auth import get_user_model
 import logging
@@ -15,147 +16,10 @@ class InstructorSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'first_name', 'last_name', 'email', 'bio', 'position']
 
-# Serializers for lessons
-class LessonSerializer(serializers.ModelSerializer):
+class ResourceSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Lesson
-        fields = ["id", "course", "module", "title", "description", "video_id", "position", "duration"]
-
-class CourseModuleSerializer(serializers.ModelSerializer):
-    lessons = LessonSerializer(many=True, read_only=True)
-    duration = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = CourseModule
-        fields = ["id", "title", "position", "lessons", "duration"]
-    
-    def get_duration(self, obj):
-        return obj.duration_minutes()
-
-class ModuleCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CourseModule
-        fields = ['course', 'title', 'position']
-
-class CourseOutcomeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CourseOutcome
-        fields = ['id', 'text', 'position']
-
-class CourseRequirementSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CourseRequirement
-        fields = ['id', 'text', 'position']
-
-class CourseSerializer(serializers.ModelSerializer):
-    instructor_details = serializers.SerializerMethodField()
-    modules = serializers.SerializerMethodField()
-    total_lessons = serializers.SerializerMethodField()
-    outcomes = CourseOutcomeSerializer(many=True, read_only=True)
-    requirements = CourseRequirementSerializer(many=True, read_only=True)
-    progress_percent = serializers.SerializerMethodField()
-
-    
-    class Meta:
-        model = Course
-        fields = ["id", "title", "description", "price", "intro_video_id", 
-                 "instructor", "instructor_details", "created_at", "category", "is_published", 
-                 "duration", "rating", "modules", "total_lessons", 
-                 "outcomes", "requirements", "progress_percent"]
-        read_only_fields = ["created_at"]
-    
-    def get_instructor_details(self, obj):
-        if obj.instructor:
-            return InstructorSerializer(obj.instructor).data
-        return None
-    
-    def get_modules(self, obj):
-        modules = obj.modules.all().prefetch_related('lessons')
-        return CourseModuleSerializer(modules, many=True).data
-    
-    def get_total_lessons(self, obj):
-        return obj.lessons.count()
-    
-    def get_progress_percent(self, obj):
-        user = self.context['request'].user
-        if not user.is_authenticated:
-            return None  # or 0
-        
-        total_lessons = Lesson.objects.filter(
-            module__course=obj
-        ).count()
-
-        if total_lessons == 0:
-            return 0
-
-        completed_lessons = LessonProgress.objects.filter(
-            student=user,
-            lesson__module__course=obj,
-            completed=True
-        ).count()
-
-        return round((completed_lessons / total_lessons) * 100)
-
-class CourseDetailSerializer(serializers.ModelSerializer):
-    lessons = LessonSerializer(many=True, read_only=True)
-    requirements = CourseRequirementSerializer(many=True, read_only=True)
-    outcomes = CourseOutcomeSerializer(many=True, read_only=True)
-    instructor_details = serializers.SerializerMethodField()
-    modules = serializers.SerializerMethodField()
-    class Meta:
-        model = Course
-        fields = '__all__'
-
-    def get_instructor_details(self, obj):
-        if obj.instructor:
-            return InstructorSerializer(obj.instructor).data
-        return None
-    
-    def get_modules(self, obj):
-        modules = obj.modules.all().prefetch_related('lessons')
-        return CourseModuleSerializer(modules, many=True).data
-
-# class BulkCourseOutcomeSerializer(serializers.Serializer):
-#     course = serializers.IntegerField()
-#     outcomes = serializers.ListField(
-#         child=serializers.DictField(
-#             child=serializers.CharField()
-#         ),
-#         allow_empty=False
-#     )
-
-#     def validate(self, data):
-#         course = data.get('course')
-#         outcomes = data.get('outcomes')
-#         if not Course.objects.filter(id=course).exists():
-#             raise serializers.ValidationError("Invalid course")
-#         for outcome in outcomes:
-#             if 'text' not in outcome:
-#                 raise serializers.ValidationError("Each outcome must have a 'text' field")
-#             if not isinstance(outcome.get('position', 0), int):
-#                 raise serializers.ValidationError("Position must be an integer")
-#         return data
-
-# class BulkCourseRequirementSerializer(serializers.Serializer):
-#     course_id = serializers.IntegerField()
-#     requirements = serializers.ListField(
-#         child=serializers.DictField(
-#             child=serializers.CharField()
-#         ),
-#         allow_empty=False
-#     )
-
-#     def validate(self, data):
-#         course_id = data.get('course_id')
-#         requirements = data.get('requirements')
-#         if not Course.objects.filter(id=course_id).exists():
-#             raise serializers.ValidationError("Invalid course_id")
-#         for req in requirements:
-#             if 'text' not in req:
-#                 raise serializers.ValidationError("Each requirement must have a 'text' field")
-#             if not isinstance(req.get('position', 0), int):
-#                 raise serializers.ValidationError("Position must be an integer")
-#         return data
+        model = Resource
+        fields = ['id', 'title', 'url', 'resource_type', 'description', 'position']
 
 # Serializers for quizzes
 
@@ -266,12 +130,18 @@ class QuizSerializer(serializers.ModelSerializer):
         ]
 
     def get_attempts_count(self, obj):
+        # Check if request is in context to avoid KeyError
+        if 'request' not in self.context:
+            return 0  # Return a default value if request is not available
         user = self.context['request'].user
         if user.is_authenticated:
             return QuizAttempt.objects.filter(quiz=obj, student=user).count()
         return 0
 
     def get_can_attempt(self, obj):
+        # Check if request is in context to avoid KeyError
+        if 'request' not in self.context:
+            return 0  # Return a default value if request is not available
         user = self.context['request'].user
         if user.is_authenticated and obj.is_active:
             attempts = QuizAttempt.objects.filter(quiz=obj, student=user).count()
@@ -279,6 +149,9 @@ class QuizSerializer(serializers.ModelSerializer):
         return False
 
     def get_attempts_remaining(self, obj):
+        # Check if request is in context to avoid KeyError
+        if 'request' not in self.context:
+            return 0  # Return a default value if request is not available
         user = self.context['request'].user
         if user.is_authenticated and obj.is_active:
             attempts = QuizAttempt.objects.filter(quiz=obj, student=user).count()
@@ -334,7 +207,7 @@ class QuizResultSerializer(serializers.ModelSerializer):
         fields = ['id', 'quiz_title', 'score', 'total_points', 'earned_points', 
                  'passed', 'completed_at', 'time_taken']
 
-# Other serializers
+# Assignment serializers
 class AssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment
@@ -356,3 +229,213 @@ class LessonProgressSerializer(serializers.ModelSerializer):
         model = LessonProgress
         fields = "__all__"
 
+
+# Lessons Serializer
+class LessonContentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LessonContent
+        fields = ["id", "content_type", "title", "video_id", "text_content", "position", "duration" ] #'title'
+
+    def validate(self, data):
+        if data['content_type'] == 'video' and not data.get('video_id'):
+            raise serializers.ValidationError("Video ID is required for video content.")
+        if data['content_type'] == 'text' and not data.get('text_content'):
+            raise serializers.ValidationError("Text Content is required for text content.")
+        if data['content_type'] == 'video' and data.get('text_content'):
+            raise serializers.ValidationError("Text Content should be empty for video content.")
+        return data
+
+class LessonSerializer(serializers.ModelSerializer):
+    quizzes = QuizSerializer(many=True, read_only=True)
+    assignments = AssignmentSerializer(many=True, read_only=True)
+    contents = LessonContentSerializer(many=True, required=False)
+    resources = ResourceSerializer(many=True, required=False)
+
+    class Meta:
+        model = Lesson
+        fields = ["id", "course", "module", "title", "description", "position", "duration", "quizzes", "assignments", "contents", "resources"]
+
+    def validate_resources(self, value):
+        if value is None:
+            return value
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Resources must be a list")
+        for resource in value:
+            if not isinstance(resource, dict):
+                raise serializers.ValidationError("Each resource must be a dictionary")
+            required_fields = ['title', 'url', 'resource_type']
+            for field in required_fields:
+                if field not in resource:
+                    raise serializers.ValidationError(f"Resource missing required field: {field}")
+            if resource.get('resource_type') not in dict(Resource.RESOURCE_TYPES).keys():
+                raise serializers.ValidationError(f"Invalid resource_type: {resource.get('resource_type')}")
+        return value
+
+    def create(self, validated_data):
+        contents_data = validated_data.pop('contents', [])
+        resources_data = validated_data.pop('resources', [])
+        validated_data['position'] = int(validated_data.get('position', 0))
+        lesson = Lesson.objects.create(**validated_data)
+        for content_data in contents_data:
+            LessonContent.objects.create(lesson=lesson, **content_data)
+        for resource_data in resources_data:
+            Resource.objects.create(lesson=lesson, **resource_data)
+        return lesson
+
+    def update(self, instance, validated_data):
+        contents_data = validated_data.pop('contents', None)
+        resources_data = validated_data.pop('resources', None)
+        instance = super().update(instance, validated_data)
+        if contents_data is not None:
+            instance.contents.all().delete()
+            max_position = LessonContent.objects.filter(lesson=instance).aggregate(models.Max('position'))['position__max'] or -1
+            for index, content_data in enumerate(contents_data):
+                content_data['position'] = max_position + index + 1
+                LessonContent.objects.create(lesson=instance, **content_data)
+        if resources_data is not None:
+            instance.resources.all().delete()
+            max_position = Resource.objects.filter(lesson=instance).aggregate(models.Max('position'))['position__max'] or -1
+            for index, resource_data in enumerate(resources_data):
+                resource_data['position'] = max_position + index + 1
+                Resource.objects.create(lesson=instance, **resource_data)
+        return instance
+
+class CourseModuleSerializer(serializers.ModelSerializer):
+    lessons = LessonSerializer(many=True, read_only=True)
+    duration = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = CourseModule
+        fields = ["id", "title", "position", "lessons", "duration"]
+    
+    def get_duration(self, obj):
+        return obj.duration_minutes()
+
+class ModuleCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CourseModule
+        fields = ['course', 'title', 'position']
+
+class CourseOutcomeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CourseOutcome
+        fields = ['id', 'text', 'position']
+
+class CourseRequirementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CourseRequirement
+        fields = ['id', 'text', 'position']
+
+class CourseSerializer(serializers.ModelSerializer):
+    instructor_details = serializers.SerializerMethodField()
+    modules = serializers.SerializerMethodField()
+    total_lessons = serializers.SerializerMethodField()
+    outcomes = CourseOutcomeSerializer(many=True, read_only=True)
+    requirements = CourseRequirementSerializer(many=True, read_only=True)
+    progress_percent = serializers.SerializerMethodField()
+    completed_lessons = serializers.SerializerMethodField()
+
+    
+    class Meta:
+        model = Course
+        fields = ["id", "title", "description", "price", "intro_video_id", 
+                 "instructor", "instructor_details", "created_at", "category", "is_published", 
+                 "duration", "rating", "modules", "total_lessons", 
+                 "outcomes", "requirements", "progress_percent", "completed_lessons"]
+        read_only_fields = ["created_at"]
+    
+    def get_instructor_details(self, obj):
+        if obj.instructor:
+            return InstructorSerializer(obj.instructor).data
+        return None
+    
+    def get_modules(self, obj):
+        modules = obj.modules.all().prefetch_related('lessons')
+        return CourseModuleSerializer(modules, many=True).data
+    
+    def get_total_lessons(self, obj):
+        return obj.lessons.count()
+    
+    def get_progress_percent(self, obj):
+        user = self.context['request'].user
+        if not user.is_authenticated:
+            return None  # or 0
+        
+        total_lessons = Lesson.objects.filter(
+            module__course=obj
+        ).count()
+
+        if total_lessons == 0:
+            return 0
+
+        completed_lessons = LessonProgress.objects.filter(
+            student=user,
+            lesson__module__course=obj,
+            completed=True
+        ).count()
+
+        return round((completed_lessons / total_lessons) * 100)
+    
+    def get_completed_lessons(self, obj):
+        return list(self.context.get('completed_lessons', set()))
+
+class CourseDetailSerializer(serializers.ModelSerializer):
+    lessons = LessonSerializer(many=True, read_only=True)
+    requirements = CourseRequirementSerializer(many=True, read_only=True)
+    outcomes = CourseOutcomeSerializer(many=True, read_only=True)
+    instructor_details = serializers.SerializerMethodField()
+    modules = serializers.SerializerMethodField()
+    class Meta:
+        model = Course
+        fields = '__all__'
+
+    def get_instructor_details(self, obj):
+        if obj.instructor:
+            return InstructorSerializer(obj.instructor).data
+        return None
+    
+    def get_modules(self, obj):
+        modules = obj.modules.all().prefetch_related('lessons')
+        return CourseModuleSerializer(modules, many=True).data
+
+class BulkCourseOutcomeSerializer(serializers.Serializer):
+    course = serializers.IntegerField()
+    outcomes = serializers.ListField(
+        child=serializers.DictField(
+            child=serializers.CharField()
+        ),
+        allow_empty=False
+    )
+
+    def validate(self, data):
+        course = data.get('course')
+        outcomes = data.get('outcomes')
+        if not Course.objects.filter(id=course).exists():
+            raise serializers.ValidationError("Invalid course")
+        for outcome in outcomes:
+            if 'text' not in outcome:
+                raise serializers.ValidationError("Each outcome must have a 'text' field")
+            if not isinstance(outcome.get('position', 0), int):
+                raise serializers.ValidationError("Position must be an integer")
+        return data
+
+class BulkCourseRequirementSerializer(serializers.Serializer):
+    course_id = serializers.IntegerField()
+    requirements = serializers.ListField(
+        child=serializers.DictField(
+            child=serializers.CharField()
+        ),
+        allow_empty=False
+    )
+
+    def validate(self, data):
+        course_id = data.get('course_id')
+        requirements = data.get('requirements')
+        if not Course.objects.filter(id=course_id).exists():
+            raise serializers.ValidationError("Invalid course_id")
+        for req in requirements:
+            if 'text' not in req:
+                raise serializers.ValidationError("Each requirement must have a 'text' field")
+            if not isinstance(req.get('position', 0), int):
+                raise serializers.ValidationError("Position must be an integer")
+        return data
