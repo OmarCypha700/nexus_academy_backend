@@ -10,7 +10,7 @@ from django.db.models import Max
 from .permissions import IsCreatorOrEnrolled, IsQuizInstructor, IsCourseInstructor
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Prefetch, OuterRef
 from django.utils.timezone import now
 from rest_framework.response import Response
 from .models import (Course, Lesson, Assignment, 
@@ -23,13 +23,85 @@ from .serializers import (
     ModuleCreateSerializer, QuestionSerializer,LessonContentSerializer, ResourceSerializer,
     BulkCourseOutcomeSerializer, BulkCourseRequirementSerializer, CourseOutcomeSerializer,CourseRequirementSerializer, 
     QuizSerializer, QuizListSerializer, 
-    QuizAttemptSerializer, QuizResultSerializer, QuizDashboardSerializer
+    QuizAttemptSerializer, QuizResultSerializer, QuizDashboardSerializer, StudentEnrollmentSerializer
 )
 import json
 import random
 import logging
 logger = logging.getLogger(__name__)
 
+
+class InstructorProgressOverviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, course_id=None):
+        courses = Course.objects.filter(instructor=request.user, is_published=True)
+        if course_id:
+            courses = courses.filter(id=course_id)
+        
+        result = []
+        for course in courses:
+            total_lessons = Lesson.objects.filter(module__course=course).count()
+            enrollments = Enrollment.objects.filter(course=course).prefetch_related(
+                'student__lesson_progress'
+            )
+            
+            completed = 0
+            in_progress = 0
+            incomplete = 0
+            
+            for enrollment in enrollments:
+                completed_lessons = LessonProgress.objects.filter(
+                    student=enrollment.student,
+                    lesson__module__course=course,
+                    completed=True
+                ).count()
+                progress_percent = (
+                    (completed_lessons / total_lessons * 100) if total_lessons else 0
+                )
+                
+                if progress_percent == 100:
+                    completed += 1
+                elif progress_percent > 0:
+                    in_progress += 1
+                else:
+                    incomplete += 1
+            
+            result.append({
+                'course_id': course.id,
+                'course_title': course.title,
+                'completed': completed,
+                'in_progress': in_progress,
+                'incomplete': incomplete
+            })
+        
+        return Response(result)
+
+class InstructorDashboardOverviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Fetch counts for the dashboard
+        courses = Course.objects.filter(instructor=request.user)
+        total_courses = courses.count()
+        published_courses = courses.filter(is_published=True).count()
+        draft_courses = courses.filter(is_published=False).count()
+        
+        # Count unique students across all courses
+        total_enrolled_students = (
+            Enrollment.objects
+            .filter(course__instructor=request.user)
+            .values('student')
+            .distinct()
+            .count()
+        )
+
+        return Response({
+            'total_courses': total_courses,
+            'total_enrolled_students': total_enrolled_students,
+            'published_courses': published_courses,
+            'draft_courses': draft_courses
+        })
 
 class UserDashboardView(APIView):
     def get(self, request):
@@ -71,6 +143,34 @@ class UserDashboardView(APIView):
             'upcoming_assignments': [],
         })
     
+class StudentDetailView(generics.RetrieveAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentEnrollmentSerializer
+
+    def get_object(self):
+        student_id = self.kwargs.get('id')
+        enrollment = get_object_or_404(Enrollment, id=student_id, course__instructor=self.request.user)
+        return enrollment
+
+
+class StudentListView(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentEnrollmentSerializer
+
+    def get_queryset(self):
+        course_id = self.kwargs.get('course_id')
+        course = get_object_or_404(Course, id=course_id, instructor=self.request.user)
+        return Enrollment.objects.filter(
+            course=course
+        ).select_related('student')
+
+    def get(self, request, *args, **kwargs):
+        course_id = kwargs.get('course_id')
+        if not Course.objects.filter(id=course_id, instructor=self.request.user).exists():
+            return Response({"detail": "Course not found or unauthorized"}, status=403)
+        return super().get(request, *args, **kwargs)
+    
+
 # Course Views
 class PublicCourseListView(generics.ListAPIView):
     queryset = Course.objects.filter(is_published=True)
@@ -137,7 +237,6 @@ class InstructorCourseDetailView(generics.RetrieveUpdateDestroyAPIView):
         response = super().delete(request, *args, **kwargs)
         print(f"Instructor DELETE {request.path} by {request.user}")
         return response
-
 
 class BulkCourseOutcomeView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsCourseInstructor]

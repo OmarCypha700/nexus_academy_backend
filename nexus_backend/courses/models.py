@@ -49,7 +49,6 @@ class Lesson(models.Model):
     def __str__(self):
         return f"{self.course.title} - {self.title}"
 
-
 class LessonContent(models.Model):
     CONTENT_TYPES = [
         ('video', 'Video'),
@@ -74,7 +73,6 @@ class LessonContent(models.Model):
         if self.content_type == 'video' and self.video_id and len(self.video_id) != 11:
             raise ValidationError("Video ID must be 11 characters long for YouTube.")
 
-
 class Resource(models.Model):
     RESOURCE_TYPES = [
         ('link', 'Webpage Link'),
@@ -93,7 +91,6 @@ class Resource(models.Model):
 
     def __str__(self):
         return f"{self.lesson.title} - Resource: {self.title} ({self.resource_type})"
-
 
 class Quiz(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='quizzes')
@@ -175,7 +172,6 @@ class Question(models.Model):
     def __str__(self):
             return f"{self.quiz.title} - {self.text[:30]}"
     
-
 class QuizAttempt(models.Model):
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name="quiz_attempts")
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="attempts")
@@ -229,7 +225,6 @@ class Enrollment(models.Model):
     def __str__(self):
         return f"{self.student.username} enrolled in {self.course.title}"
     
-
 # Lesson Progress
 class LessonProgress(models.Model):
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name="lesson_progress")
@@ -239,7 +234,6 @@ class LessonProgress(models.Model):
 
     class Meta:
         unique_together = ("student", "lesson")  # Prevent duplicate tracking
-
 
 class CourseOutcome(models.Model):
     """Represents a learning outcome or benefit from taking the course"""
@@ -252,7 +246,6 @@ class CourseOutcome(models.Model):
     
     def __str__(self):
         return f"{self.course.title} - Outcome: {self.text[:30]}"
-
 
 class CourseRequirement(models.Model):
     """Represents a prerequisite or requirement for the course"""

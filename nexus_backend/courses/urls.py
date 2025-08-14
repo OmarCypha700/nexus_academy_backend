@@ -11,7 +11,7 @@ from .views import (
     LessonQuizzesView, QuizTakeView, QuizSubmitView,
     QuizAttemptListView, QuizAttemptDetailView, QuizResultsView, ModuleReorderView,
     BulkCourseOutcomeView, BulkCourseRequirementView, CourseOutcomeListCreateView, CourseOutcomeDetailView,
-    CourseRequirementListCreateView, CourseRequirementDetailView
+    CourseRequirementListCreateView, CourseRequirementDetailView, StudentListView, StudentDetailView, InstructorProgressOverviewView, InstructorDashboardOverviewView
 )
 
 quiz_patterns = [
@@ -44,9 +44,11 @@ course_patterns = [
     path("instructor/courses/", InstructorCourseListView.as_view(), name="course-list"),
     path("instructor/courses/<int:pk>/", InstructorCourseDetailView.as_view(), name="course-detail"),
 
-    # Instructor Specific Course View 
-    path("courses/<int:id>/lessons/", CourseSpecificLessons.as_view(), name="course-specific-lessons"),
-
+    # Dashboard PieChart
+    path('instructor/progress-overview/', InstructorProgressOverviewView.as_view(), name='progress-overview'),
+    path('instructor/progress-overview/<int:course_id>/', InstructorProgressOverviewView.as_view(), name='progress-overview-course'),
+    # Dashboard Card
+    path('instructor/dashboard-overview/', InstructorDashboardOverviewView.as_view(), name='dashboard-overview'),
 ]
 
 urlpatterns = [
@@ -57,6 +59,8 @@ urlpatterns = [
     path("lessons/<int:pk>/", LessonDetailView.as_view(), name="lesson-detail"),
     path("lessons/<int:lesson_id>/resources/", LessonResourcesView.as_view(), name="lesson-resources"),
     path("resources/<int:pk>/", ResourceDetailView.as_view(), name="resource-detail"),
+
+    path("courses/<int:id>/lessons/", CourseSpecificLessons.as_view(), name="course-specific-lessons"),
 
     # path("lessons/<int:pk>/contents/", LessonContentListCreateView.as_view(), name="lesson-content-list"),
 
@@ -79,4 +83,7 @@ urlpatterns = [
     path("courses/<int:course_id>/outcomes/<int:pk>/", CourseOutcomeDetailView.as_view(), name="course-outcome-detail"),
     path("courses/<int:course_id>/requirements/", CourseRequirementListCreateView.as_view(), name="course-requirements"),
     path("courses/<int:course_id>/requirements/<int:pk>/", CourseRequirementDetailView.as_view(), name="course-requirement-detail"),
+
+    path('instructor/courses/<int:course_id>/students/', StudentListView.as_view(), name='student-list'),
+    path('instructor/students/<int:id>/', StudentDetailView.as_view(), name='student-detail'),
 ] + quiz_patterns + course_patterns

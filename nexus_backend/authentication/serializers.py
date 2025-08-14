@@ -22,7 +22,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "password", "role"]
+        fields = ["id", "username", "first_name", "last_name", "email", "password", "role"]
 
     def create(self, validated_data):
         role = validated_data.get("role", "").lower()
@@ -61,7 +61,6 @@ class PasswordResetSerializer(serializers.Serializer):
             "token": token,
         }
     
-
 class PasswordResetConfirmSerializer(serializers.Serializer):
     uid = serializers.CharField()
     token = serializers.CharField()

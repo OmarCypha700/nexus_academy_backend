@@ -11,6 +11,52 @@ logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
+
+class StudentProgressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LessonProgress
+        fields = ['lesson_id', 'completed', 'completed_at']
+
+class StudentEnrollmentSerializer(serializers.ModelSerializer):
+    student = serializers.SerializerMethodField()
+    progress = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Enrollment
+        fields = ['id', 'student', 'enrolled_at', 'progress']
+
+    def get_student(self, obj):
+        return {
+            'id': obj.student.id,
+            'name': f"{obj.student.first_name} {obj.student.last_name}",
+            'email': obj.student.email
+        }
+
+    def get_progress(self, obj):
+        student = obj.student  # Use the enrolled student from the Enrollment object
+        course = obj.course    # Use the related Course from the Enrollment object
+        
+        total_lessons = Lesson.objects.filter(module__course=course).count()
+        if total_lessons == 0:
+            return {
+                'completed_count': 0,
+                'total_lessons': 0,
+                'progress_percent': 0.0
+            }
+        
+        completed_lessons = LessonProgress.objects.filter(
+            student=student,
+            lesson__module__course=course,
+            completed=True
+        ).count()
+        
+        return {
+            'completed_count': completed_lessons,
+            'total_lessons': total_lessons,
+            'progress_percent': round((completed_lessons / total_lessons * 100), 1)
+        }
+
+
 class InstructorSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
