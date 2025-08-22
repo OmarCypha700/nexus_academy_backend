@@ -28,6 +28,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = "django-insecure-wa_ihw&zo-klf28p5h68itqwqj33kvq3vb(2ay4l(mlw0@3qhb"
 
+PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
+PAYSTACK_PUBLIC_KEY = os.getenv("PAYSTACK_PUBLIC_KEY")
+
+FRONTEND_URL = "http://localhost:3000"
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 

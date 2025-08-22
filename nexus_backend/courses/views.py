@@ -29,7 +29,156 @@ import json
 import random
 import logging
 logger = logging.getLogger(__name__)
+import requests
+from django.conf import settings
 
+# Paystack Integration
+class PaymentInitializeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        course_id = request.data.get("course_id")
+        email = request.data.get("email")
+        amount = request.data.get("amount")  # Amount in pesewas
+
+        if not all([course_id, email, amount]):
+            return Response(
+                {"detail": "course_id, email, and amount are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            course = Course.objects.get(id=course_id)
+            if Enrollment.objects.filter(student=request.user, course=course).exists():
+                return Response(
+                    {"detail": "You are already enrolled in this course"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Initialize Paystack transaction
+            headers = {
+                "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "email": email,
+                "amount": int(amount),  # Ensure amount is an integer
+                "currency": "GHS",
+                "metadata": {
+                    "course_id": course_id,
+                    "user_id": request.user.id,
+                },
+            }
+            response = requests.post(
+                "https://api.paystack.co/transaction/initialize",
+                json=payload,
+                headers=headers,
+            )
+            response_data = response.json()
+
+            if response.status_code != 200 or not response_data.get("status"):
+                logger.error(f"Paystack initialization failed: {response_data}")
+                return Response(
+                    {"detail": "Failed to initialize payment"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+            return Response({
+                "access_code": response_data["data"]["access_code"],
+                "reference": response_data["data"]["reference"],
+            })
+        except Course.DoesNotExist:
+            return Response(
+                {"detail": "Course not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Payment initialization error: {str(e)}")
+            return Response(
+                {"detail": f"An error occurred: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class PaymentVerifyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        reference = request.data.get("reference")
+        course_id = request.data.get("course_id")
+
+        if not all([reference, course_id]):
+            return Response(
+                {"detail": "reference and course_id are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # Verify Paystack transaction
+            headers = {
+                "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+                "Content-Type": "application/json",
+            }
+            response = requests.get(
+                f"https://api.paystack.co/transaction/verify/{reference}",
+                headers=headers,
+            )
+            response_data = response.json()
+
+            if response.status_code != 200 or not response_data.get("status"):
+                logger.error(f"Paystack verification failed: {response_data}")
+                return Response(
+                    {"detail": "Payment verification failed"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if response_data["data"]["status"] != "success":
+                return Response(
+                    {"detail": "Payment was not successful"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Ensure the payment amount and metadata match
+            course = Course.objects.get(id=course_id)
+            expected_amount = int(course.price * 100)  # Convert to pesewas
+            paid_amount = response_data["data"]["amount"]
+            metadata = response_data["data"]["metadata"]
+
+            if paid_amount != expected_amount or metadata.get("course_id") != course_id:
+                logger.error(f"Payment validation failed: amount or metadata mismatch")
+                return Response(
+                    {"detail": "Invalid payment details"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Enroll the user atomically
+            with transaction.atomic():
+                enrollment, created = Enrollment.objects.get_or_create(
+                    student=request.user,
+                    course_id=course_id,
+                    defaults={"enrolled_at": timezone.now()}
+                )
+                if not created:
+                    return Response(
+                        {"detail": "You are already enrolled in this course"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            return Response({
+                "status": "success",
+                "enrollment": EnrollmentSerializer(enrollment).data,
+            })
+        except Course.DoesNotExist:
+            return Response(
+                {"detail": "Course not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Payment verification error: {str(e)}")
+            return Response(
+                {"detail": f"An error occurred: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
 
 class InstructorProgressOverviewView(APIView):
     permission_classes = [IsAuthenticated]
@@ -64,7 +213,7 @@ class InstructorProgressOverviewView(APIView):
                     completed += 1
                 elif progress_percent > 0:
                     in_progress += 1
-                else:
+                elif progress_percent == 0:
                     incomplete += 1
             
             result.append({
@@ -857,32 +1006,67 @@ class AssignmentDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]  # Only Enrolled Students, Instructors, or Admins can view/edit
 
 # Enrollment View
-class EnrollmentView(generics.CreateAPIView):
-    queryset = Enrollment.objects.all()
-    serializer_class = EnrollmentSerializer
-    permission_classes = [IsAuthenticated]  # Any logged-in user can enroll
+# class EnrollmentView(generics.CreateAPIView):
+#     queryset = Enrollment.objects.all()
+#     serializer_class = EnrollmentSerializer
+#     permission_classes = [IsAuthenticated]  # Any logged-in user can enroll
 
-    def get_serializer_context(self):
-        return {"request": self.request}
+#     def get_serializer_context(self):
+#         return {"request": self.request}
     
-    def create(self, request, *args, **kwargs):
-        print("Request content type:", request.content_type)  # Debug the content type
-        print("Request data:", request.data)  # Debug the received data
+#     def create(self, request, *args, **kwargs):
+#         print("Request content type:", request.content_type)  # Debug the content type
+#         print("Request data:", request.data)  # Debug the received data
 
-        course_id = request.data.get('course_id')
-        if not course_id:
-            return Response({"detail": "course_id is required"}, status=400)
+#         course_id = request.data.get('course_id')
+#         if not course_id:
+#             return Response({"detail": "course_id is required"}, status=400)
             
-        # Check if already enrolled
-        if Enrollment.objects.filter(student=request.user, course_id=course_id).exists():
-            return Response({"detail": "Already enrolled in this course"}, status=400)
+#         # Check if already enrolled
+#         if Enrollment.objects.filter(student=request.user, course_id=course_id).exists():
+#             return Response({"detail": "Already enrolled in this course"}, status=400)
             
-        # Create enrollment
-        enrollment = Enrollment(student=request.user, course_id=course_id)
-        enrollment.save()
+#         # Create enrollment
+#         enrollment = Enrollment(student=request.user, course_id=course_id)
+#         enrollment.save()
         
-        return Response(EnrollmentSerializer(enrollment).data, status=201)
+#         return Response(EnrollmentSerializer(enrollment).data, status=201)
     
+
+class EnrollmentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        course_id = request.data.get("course_id")
+        if not course_id:
+            return Response({"detail": "course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            course = Course.objects.get(id=course_id)
+            if Enrollment.objects.filter(student=request.user, course=course).exists():
+                return Response({"detail": "You are already enrolled in this course"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # For free courses (price = 0), allow direct enrollment
+            if course.price == 0:
+                with transaction.atomic():
+                    enrollment = Enrollment.objects.create(
+                        student=request.user,
+                        course=course,
+                        enrolled_at=timezone.now()
+                    )
+                return Response(EnrollmentSerializer(enrollment).data, status=status.HTTP_201_CREATED)
+
+            return Response(
+                {"detail": "Payment required for this course"},
+                status=status.HTTP_402_PAYMENT_REQUIRED
+            )
+        except Course.DoesNotExist:
+            return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Enrollment error: {str(e)}")
+            return Response({"detail": f"An error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class EnrollmentCheckView(APIView):
     permission_classes = [IsAuthenticated]
     
